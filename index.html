@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Med Studio - Cyber Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Fira Code', monospace; background-color: #0d1117; color: #c9d1d9; }
+        .panel { background-color: #161b22; border: 1px solid #30363d; }
+        .btn-primary { background-color: #238636; transition: 0.3s; }
+        .btn-primary:hover { background-color: #2ea043; }
+        .input-dark { background-color: #0d1117; border: 1px solid #30363d; color: #fff; }
+        .input-dark:focus { outline: none; border-color: #58a6ff; box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.3); }
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+    <script> const BACKEND_URL = "https://my-worker.amelxly.workers.dev"; </script>
+
+    <div class="w-full max-w-5xl flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
+        <h1 class="text-2xl md:text-3xl font-bold text-blue-500 tracking-widest">MED—STUDIO</h1>
+        <div class="text-xs md:text-sm text-green-400 bg-green-900/30 px-3 py-1 rounded border border-green-700">ENGINE: ONLINE</div>
+    </div>
+
+    <div class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="panel p-6 rounded-lg shadow-lg md:col-span-2">
+            <h2 class="text-xl font-bold text-yellow-400 mb-4 border-b border-gray-700 pb-2">⚙️ Setup Akun Roblox (User)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Roblox User ID:</label>
+                    <input type="text" id="userId" class="input-dark w-full p-2 rounded" placeholder="Contoh: 1149773253">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Open Cloud API Key:</label>
+                    <input type="password" id="apiKey" class="input-dark w-full p-2 rounded" placeholder="Masukkan API Key (Read & Write)">
+                </div>
+            </div>
+            <button onclick="simpanSetup()" class="btn-primary w-full py-2 rounded font-bold mt-4">💾 Simpan Setup</button>
+        </div>
+
+        <div class="panel p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-bold text-blue-400 mb-4 border-b border-gray-700 pb-2">🚀 Tools Spoofer Aset</h2>
+            <div class="mb-4">
+                <label class="block text-sm text-gray-400 mb-2">Asset ID Target:</label>
+                <input type="text" id="spoofAssetId" class="input-dark w-full p-2 rounded" placeholder="ID Aset Target">
+            </div>
+            <button onclick="eksekusiSpoof()" class="btn-primary w-full py-3 rounded font-bold text-lg">💥 EKSEKUSI SPOOF</button>
+            <div id="logSpoof" class="mt-4 p-3 bg-black text-green-400 text-sm rounded border border-gray-700 h-32 overflow-y-auto hidden"></div>
+        </div>
+
+        <div class="panel p-6 rounded-lg shadow-lg">
+            <h2 class="text-xl font-bold text-purple-400 mb-4 border-b border-gray-700 pb-2">🎵 Audio Engine</h2>
+            <div class="mb-4">
+                <label class="block text-sm text-gray-400 mb-2">Link Video/Lagu:</label>
+                <input type="text" id="audioUrl" class="input-dark w-full p-2 rounded" placeholder="https://youtube.com/watch?v=...">
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm text-gray-400 mb-2">Set Speed:</label>
+                <select id="audioSpeed" class="input-dark w-full p-2 rounded">
+                    <option value="1.0">Normal (1.0x)</option>
+                    <option value="2.33" selected>Bypass CR (2.33x)</option>
+                </select>
+            </div>
+            <button onclick="eksekusiAudio()" class="w-full py-3 rounded font-bold text-lg bg-purple-700 hover:bg-purple-600 transition text-white">🎧 FETCH & UPLOAD</button>
+            <div id="logAudio" class="mt-4 p-3 bg-black text-purple-400 text-sm rounded border border-gray-700 h-32 overflow-y-auto hidden"></div>
+        </div>
+    </div>
+
+    <script>
+        window.onload = function() {
+            if(localStorage.getItem('rbx_userId')) document.getElementById('userId').value = localStorage.getItem('rbx_userId');
+            if(localStorage.getItem('rbx_apiKey')) document.getElementById('apiKey').value = localStorage.getItem('rbx_apiKey');
+        };
+
+        function simpanSetup() {
+            localStorage.setItem('rbx_userId', document.getElementById('userId').value);
+            localStorage.setItem('rbx_apiKey', document.getElementById('apiKey').value);
+            alert("Setup Disimpan!");
+        }
+
+        async function eksekusiSpoof() {
+            const assetId = document.getElementById('spoofAssetId').value;
+            const log = document.getElementById('logSpoof');
+            const apiKey = localStorage.getItem('rbx_apiKey');
+            const userId = localStorage.getItem('rbx_userId');
+            if(!assetId || !apiKey || !userId) return alert("Lengkapi Setup & ID!");
+            log.classList.remove('hidden');
+            log.innerHTML = "Memulai spoof...\n";
+            try {
+                const res = await fetch(`${BACKEND_URL}/spoof?id=${assetId}&apiKey=${apiKey}&userId=${userId}`);
+                const data = await res.json();
+                log.innerHTML += `[Server] ${data.message || data.error}\n`;
+                if(data.new_asset_id) log.innerHTML += `[+] Asset ID Baru: ${data.new_asset_id}\n`;
+            } catch (e) { log.innerHTML += `[-] Error: ${e.message}\n`; }
+        }
+
+        async function eksekusiAudio() {
+            const url = document.getElementById('audioUrl').value;
+            const speed = document.getElementById('audioSpeed').value;
+            const log = document.getElementById('logAudio');
+            const apiKey = localStorage.getItem('rbx_apiKey');
+            const userId = localStorage.getItem('rbx_userId');
+            if(!url || !apiKey || !userId) return alert("Lengkapi Setup & Link!");
+            log.classList.remove('hidden');
+            log.innerHTML = "Memproses audio...\n";
+            try {
+                const res = await fetch(`${BACKEND_URL}/audio?url=${encodeURIComponent(url)}&speed=${speed}&apiKey=${apiKey}&userId=${userId}`);
+                const data = await res.json();
+                log.innerHTML += `[Server] ${data.message || data.error}\n`;
+                if(data.new_asset_id) log.innerHTML += `[+] Audio ID Baru: ${data.new_asset_id}\n`;
+            } catch (e) { log.innerHTML += `[-] Error: ${e.message}\n`; }
+        }
+    </script>
+</body>
+</html>
