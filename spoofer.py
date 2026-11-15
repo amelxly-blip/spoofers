@@ -303,14 +303,19 @@ async def upload_to_open_cloud(s, path, key, target_id, asset_name, info_type):
     }
     try:
         with open(path, "rb") as f:
+            fname = os.path.basename(path)
+            if fname.endswith('.mp3') or fname.endswith('.ogg') or fname.endswith('.wav'):
+                ctype = 'audio/mpeg'
+            else:
+                ctype = 'model/vnd.roblox+xml'
             form = aiohttp.FormData()
             form.add_field('request', json.dumps(req_data), content_type='application/json')
-            form.add_field('fileContent', f, filename=os.path.basename(path), content_type='application/octet-stream')
+            form.add_field('fileContent', f, filename=fname, content_type=ctype)
             async with s.post(url, headers={"x-api-key": key}, data=form, timeout=300) as r:
                 if r.status == 200:
                     return {"success": True, "operation_id": (await r.json()).get("operationId")}
                 body = await r.text()
-                return {"success": False, "error": f"HTTP {r.status}: {body[:100]}"}
+                return {"success": False, "error": f"HTTP {r.status}: {body[:150]}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
