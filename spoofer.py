@@ -143,10 +143,8 @@ def make_headers(cookie):
     return h
 
 async def get_asset_details(session, aid, headers):
-    """Multi-layer title detection: Economy -> Develop -> Toolbox -> Catalog -> Fallback"""
     name, creator_name, creator_id, asset_type_name = None, None, None, None
 
-    # Layer 1: Economy API
     try:
         async with session.get(
             f'https://economy.roblox.com/v1/assets/{aid}/details',
@@ -163,7 +161,6 @@ async def get_asset_details(session, aid, headers):
                 await asyncio.sleep(2)
     except: pass
 
-    # Layer 2: Develop API
     if not name:
         try:
             async with session.get(
@@ -178,7 +175,6 @@ async def get_asset_details(session, aid, headers):
                             asset_type_name = ASSET_TYPE_IDS.get(d['data'][0].get('AssetTypeId'))
         except: pass
 
-    # Layer 3: Toolbox API (paling reliable buat audio private)
     if not name:
         try:
             async with session.get(
@@ -199,7 +195,6 @@ async def get_asset_details(session, aid, headers):
                             asset_type_name = ASSET_TYPE_IDS.get(asset.get('typeId'))
         except: pass
 
-    # Layer 4: Catalog API
     if not name:
         try:
             async with session.post(
@@ -284,8 +279,11 @@ async def download_asset(session, aid, save_dir, cookie):
 
 async def upload_to_open_cloud(s, path, key, target_id, asset_name, info_type):
     url = "https://apis.roblox.com/assets/v1/assets"
+    upload_type = info_type or "Model"
+    if upload_type == "Animation":
+        upload_type = "Model"
     req_data = {
-        "assetType": info_type or "Model",
+        "assetType": upload_type,
         "displayName": asset_name[:50],
         "description": "Spoofed",
         "creationContext": {"creator": {"userId": str(target_id)}}
@@ -348,9 +346,13 @@ async def _process_one(s, aid, save_dir, key, cfg, asset_type, total, idx, speed
         if ext == 'rbxm':
             try:
                 with open(path, 'rb') as fh:
-                    if b'KeyframeSequence' in fh.read(262144): final_type = 'Animation'
-            except: pass
-            final_type = final_type or 'Model'
+                    content = fh.read(262144)
+                    if b'KeyframeSequence' in content:
+                        final_type = 'Animation'
+                    else:
+                        final_type = 'Model'
+            except:
+                final_type = 'Model'
         else:
             final_type = 'Audio'
 
