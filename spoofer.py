@@ -31,7 +31,18 @@ SPEED_OPTIONS = {
 }
 RECOMMENDED = "1.5x"
 
-_DEFAULT_SEEDS = [76077593225337, 119031818630096, 131528987147518, 125981614068947, 112742012181598]
+_DEFAULT_SEEDS = [
+    119031818630096,
+    76077593225337,
+    131528987147518,
+    125981614068947,
+    112742012181598,
+    6872265039,
+    5765186170,
+    3271915715,
+    4483381587,
+    7415484388,
+]
 _PLACE_LOCK = asyncio.Lock()
 
 def load_place_cache():
@@ -104,7 +115,7 @@ def setup_spoofer_bot(cfg):
     console.print("[bold yellow]── SETUP COOKIE BOT SPOOFER ──[/bold yellow]")
     console.print("[dim]Masukkan Cookie .ROBLOSECURITY (Akun Bot Tumbal)[/dim]\n")
     cookie = Prompt.ask("[cyan]Cookie .ROBLOSECURITY[/cyan]", password=True)
-    cfg["cookie"] = cookie
+    cfg["cookie"] = cookie.strip()
     save_json(CONFIG, cfg)
     console.print("[bold green]✔ Cookie Bot Spoofer disimpan![/bold green]")
     time.sleep(1.5)
@@ -139,7 +150,9 @@ def make_session(): return aiohttp.ClientSession(connector=_connector(), connect
 
 def make_headers(cookie):
     h = {"User-Agent": "Roblox/WinInet", "Accept": "application/json"}
-    if cookie: h["Cookie"] = f".ROBLOSECURITY={cookie}"
+    if cookie:
+        c = cookie.strip()
+        h["Cookie"] = f".ROBLOSECURITY={c}"
     return h
 
 async def get_asset_details(session, aid, headers):
@@ -296,7 +309,8 @@ async def upload_to_open_cloud(s, path, key, target_id, asset_name, info_type):
             async with s.post(url, headers={"x-api-key": key}, data=form, timeout=300) as r:
                 if r.status == 200:
                     return {"success": True, "operation_id": (await r.json()).get("operationId")}
-                return {"success": False, "error": f"HTTP {r.status}"}
+                body = await r.text()
+                return {"success": False, "error": f"HTTP {r.status}: {body[:100]}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
