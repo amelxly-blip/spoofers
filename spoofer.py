@@ -19,8 +19,6 @@ DL_DIR = Path.home() / "spoof_tmp"
 os.makedirs(DL_DIR, exist_ok=True)
 
 MAX_RETRY = 3
-OC_ENDPOINT = "https://apis.roblox.com/assets/v1/assets"
-OC_OPERATIONS = "https://apis.roblox.com/assets/v1/operations/"
 CHUNK = 30
 KIND_EXT = {'Audio': {'mp3', 'ogg', 'wav'}, 'Decal': {'png', 'jpg', 'jpeg', 'gif', 'webp'}, 'Model': {'rbxm'}, 'Animation': {'rbxm'}}
 ASSET_TYPE_IDS = {1: 'Image', 3: 'Audio', 4: 'Mesh', 9: 'Place', 10: 'Model', 13: 'Decal', 24: 'Animation', 38: 'Plugin', 40: 'MeshPart', 62: 'Video'}
@@ -32,16 +30,9 @@ SPEED_OPTIONS = {
 RECOMMENDED = "1.5x"
 
 _DEFAULT_SEEDS = [
-    119031818630096,
-    76077593225337,
-    131528987147518,
-    125981614068947,
-    112742012181598,
-    6872265039,
-    5765186170,
-    3271915715,
-    4483381587,
-    7415484388,
+    119031818630096, 76077593225337, 131528987147518,
+    125981614068947, 112742012181598, 6872265039,
+    5765186170, 3271915715, 4483381587, 7415484388,
 ]
 _PLACE_LOCK = asyncio.Lock()
 
@@ -59,7 +50,10 @@ async def _add_place_cache(place_id):
     async with _PLACE_LOCK:
         if place_id in _PLACE_CACHE: return
         _PLACE_CACHE.append(place_id)
-        try: PLACE_CACHE_FILE.write_text(json.dumps(_PLACE_CACHE))
+        try:
+            tmp = str(PLACE_CACHE_FILE) + '.tmp'
+            with open(tmp, 'w') as f: json.dump(_PLACE_CACHE, f)
+            os.replace(tmp, str(PLACE_CACHE_FILE))
         except: pass
 
 def load_json(p, default):
@@ -159,29 +153,23 @@ async def get_asset_details(session, aid, headers):
     name, creator_name, creator_id, asset_type_name = None, None, None, None
 
     try:
-        async with session.get(
-            f'https://economy.roblox.com/v1/assets/{aid}/details',
-            headers=headers, timeout=10
-        ) as r:
+        async with session.get(f'https://economy.roblox.com/v1/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
             if r.status == 200:
-                d = await r.json()
+                d = await r.json(content_type=None)
                 name = d.get('Name')
                 asset_type_name = ASSET_TYPE_IDS.get(d.get('AssetTypeId'))
                 creator = d.get('Creator', {})
                 creator_id = creator.get('CreatorTargetId')
                 creator_name = creator.get('Name')
             elif r.status == 429:
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
     except: pass
 
     if not name:
         try:
-            async with session.get(
-                f'https://develop.roblox.com/v1/assets?assetIds={aid}',
-                headers=headers, timeout=10
-            ) as r:
+            async with session.get(f'https://develop.roblox.com/v1/assets?assetIds={aid}', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
-                    d = await r.json()
+                    d = await r.json(content_type=None)
                     if d.get('data') and len(d['data']) > 0:
                         name = d['data'][0].get('Name')
                         if not asset_type_name:
@@ -190,12 +178,9 @@ async def get_asset_details(session, aid, headers):
 
     if not name:
         try:
-            async with session.get(
-                f'https://apis.roblox.com/toolbox-service/v1/items/details?assetIds={aid}',
-                headers=headers, timeout=10
-            ) as r:
+            async with session.get(f'https://apis.roblox.com/toolbox-service/v1/items/details?assetIds={aid}', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
-                    d = await r.json()
+                    d = await r.json(content_type=None)
                     items = d.get('data', [])
                     if items:
                         asset = items[0].get('asset', {})
@@ -210,14 +195,12 @@ async def get_asset_details(session, aid, headers):
 
     if not name:
         try:
-            async with session.post(
-                'https://catalog.roblox.com/v1/catalog/items/details',
+            async with session.post('https://catalog.roblox.com/v1/catalog/items/details',
                 headers={**headers, 'Content-Type': 'application/json'},
                 json={"items": [{"itemType": "Asset", "id": int(aid)}]},
-                timeout=10
-            ) as r:
+                timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
-                    d = await r.json()
+                    d = await r.json(content_type=None)
                     if d.get('data'):
                         name = d['data'][0].get('name')
                         if not asset_type_name:
@@ -232,13 +215,13 @@ async def download_asset(session, aid, save_dir, cookie):
 
     try:
         url = f"https://assetdelivery.roblox.com/v2/assetId/{aid}/version/1"
-        async with session.get(url, headers=headers, timeout=30) as r:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
             if r.status == 200:
-                data = await r.json()
+                data = await r.json(content_type=None)
                 locations = data.get("locations", [])
                 if locations and locations[0].get("location"):
                     cdn_url = locations[0]["location"]
-                    async with session.get(cdn_url, headers={"User-Agent": "Roblox/WinInet"}, timeout=60) as cdn_r:
+                    async with session.get(cdn_url, headers={"User-Agent": "Roblox/WinInet"}, timeout=aiohttp.ClientTimeout(total=60)) as cdn_r:
                         if cdn_r.status == 200:
                             content = await cdn_r.read()
                             if content and len(content) > 100:
@@ -251,25 +234,25 @@ async def download_asset(session, aid, save_dir, cookie):
 
     c_type, c_id = None, None
     try:
-        async with session.get(f'https://economy.roblox.com/v1/assets/{aid}/details', headers=headers, timeout=10) as r:
+        async with session.get(f'https://economy.roblox.com/v1/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
             if r.status == 200:
-                d = await r.json()
+                d = await r.json(content_type=None)
                 c_type = d.get('Creator', {}).get('CreatorType')
                 c_id = d.get('Creator', {}).get('CreatorTargetId')
     except: pass
 
     if c_type == "User":
         try:
-            async with session.get(f"https://games.roblox.com/v2/users/{c_id}/games?accessFilter=Public&limit=10&sortOrder=Asc", timeout=10) as r:
+            async with session.get(f"https://games.roblox.com/v2/users/{c_id}/games?accessFilter=Public&limit=10&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
-                    for g in (await r.json()).get('data', []):
+                    for g in (await r.json(content_type=None)).get('data', []):
                         if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
         except: pass
     elif c_type == "Group":
         try:
-            async with session.get(f"https://games.roblox.com/v2/groups/{c_id}/games?accessFilter=Public&limit=10&sortOrder=Asc", timeout=10) as r:
+            async with session.get(f"https://games.roblox.com/v2/groups/{c_id}/games?accessFilter=Public&limit=10&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
-                    for g in (await r.json()).get('data', []):
+                    for g in (await r.json(content_type=None)).get('data', []):
                         if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
         except: pass
 
@@ -277,7 +260,7 @@ async def download_asset(session, aid, save_dir, cookie):
         spoof_headers = headers.copy()
         spoof_headers["Roblox-Place-Id"] = str(pid)
         try:
-            async with session.get(f"https://assetdelivery.roblox.com/v1/asset/?id={aid}", headers=spoof_headers, timeout=30) as r:
+            async with session.get(f"https://assetdelivery.roblox.com/v1/asset/?id={aid}", headers=spoof_headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
                 if r.status == 200:
                     content = await r.read()
                     if content and len(content) > 100:
@@ -292,38 +275,55 @@ async def download_asset(session, aid, save_dir, cookie):
 
 async def upload_to_open_cloud(s, path, key, target_id, asset_name, info_type):
     url = "https://apis.roblox.com/assets/v1/assets"
+    fname = os.path.basename(path)
+
+    # Tentukan tipe upload yang bener
     upload_type = info_type or "Model"
+
+    # Tentukan content-type berdasarkan tipe asset
     if upload_type == "Animation":
-        upload_type = "Model"
+        ctype = "application/xml"
+    elif fname.endswith('.mp3') or fname.endswith('.ogg') or fname.endswith('.wav'):
+        ctype = "audio/mpeg"
+        upload_type = "Audio"
+    elif upload_type == "Decal":
+        ctype = "image/png"
+    else:
+        ctype = "application/octet-stream"
+
     req_data = {
         "assetType": upload_type,
         "displayName": asset_name[:50],
-        "description": "Spoofed",
+        "description": f"Uploaded via Spoofer | Original ID: {path.split('_')[-1].split('.')[0]}",
         "creationContext": {"creator": {"userId": str(target_id)}}
     }
-    try:
-        with open(path, "rb") as f:
-            fname = os.path.basename(path)
-            if fname.endswith('.mp3') or fname.endswith('.ogg') or fname.endswith('.wav'):
-                ctype = 'audio/mpeg'
-            else:
-                ctype = 'model/vnd.roblox+xml'
-            form = aiohttp.FormData()
-            form.add_field('request', json.dumps(req_data), content_type='application/json')
-            form.add_field('fileContent', f, filename=fname, content_type=ctype)
-            async with s.post(url, headers={"x-api-key": key}, data=form, timeout=300) as r:
-                if r.status == 200:
-                    return {"success": True, "operation_id": (await r.json()).get("operationId")}
-                body = await r.text()
-                return {"success": False, "error": f"HTTP {r.status}: {body[:150]}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+
+    for attempt in range(1, MAX_RETRY + 1):
+        try:
+            with open(path, "rb") as f:
+                form = aiohttp.FormData()
+                form.add_field('request', json.dumps(req_data), content_type='application/json')
+                form.add_field('fileContent', f, filename=fname, content_type=ctype)
+                async with s.post(url, headers={"x-api-key": key}, data=form, timeout=aiohttp.ClientTimeout(total=300)) as r:
+                    if r.status == 200:
+                        return {"success": True, "operation_id": (await r.json(content_type=None)).get("operationId")}
+                    body = await r.text()
+                    if r.status in (429, 500, 503) and attempt < MAX_RETRY:
+                        await asyncio.sleep(2 * attempt)
+                        continue
+                    return {"success": False, "error": f"HTTP {r.status}: {body[:200]}"}
+        except Exception as e:
+            if attempt < MAX_RETRY:
+                await asyncio.sleep(2 * attempt)
+                continue
+            return {"success": False, "error": str(e)}
+    return {"success": False, "error": "Max retry habis"}
 
 async def op_check(s, op_id, key):
     try:
-        async with s.get(f'https://apis.roblox.com/assets/v1/operations/{op_id}', headers={'x-api-key': key}, timeout=20) as r:
+        async with s.get(f'https://apis.roblox.com/assets/v1/operations/{op_id}', headers={'x-api-key': key}, timeout=aiohttp.ClientTimeout(total=20)) as r:
             if r.status != 200: return {'state': 'pending'}
-            data = await r.json()
+            data = await r.json(content_type=None)
     except: return {'state': 'pending'}
     if not data.get('done'): return {'state': 'pending'}
     if data.get('error'): return {'state': 'fail', 'error': str(data['error'])}
@@ -360,13 +360,14 @@ async def _process_one(s, aid, save_dir, key, cfg, asset_type, total, idx, speed
 
     path = res['file_path']
 
+    # Auto detect tipe dari isi file
     if not final_type or final_type == 'auto':
         ext = path.rsplit('.', 1)[-1].lower() if '.' in path else ''
         if ext == 'rbxm':
             try:
                 with open(path, 'rb') as fh:
                     content = fh.read(262144)
-                    if b'KeyframeSequence' in content:
+                    if b'KeyframeSequence' in content or b'CurveAnimation' in content:
                         final_type = 'Animation'
                     else:
                         final_type = 'Model'
@@ -460,12 +461,12 @@ async def settle_pending(rows, key, max_wait=600):
     return rows
 
 async def run_batch(uid, cfg, ids, asset_type='auto', workers=5, speed_val=None):
-    key = cfg['api_key']; total = len(ids); rows = []; base = 0
-    for i in range(0, total, CHUNK):
+    key = cfg['api_key']; rows = []
+    for i in range(0, len(ids), CHUNK):
         chunk = ids[i:i+CHUNK]
         part = await run_spoof(uid, cfg, chunk, asset_type=asset_type, workers=workers, speed_val=speed_val)
         await settle_pending(part, key)
-        rows.extend(part); base += len(chunk)
+        rows.extend(part)
     return rows
 
 def parse_ids(text):
@@ -516,7 +517,6 @@ def spoof_engine_ui(cfg):
         console.print("[red]✘ ID kosong.[/red]"); Prompt.ask("Enter"); return
 
     workers = pick_workers()
-
     console.print(f"\n[green][Info] Target: {chosen_type.upper()} | Total: {len(ids)} | Workers: {workers}[/green]\n")
 
     cfg["target_id"] = cfg["user_id"]
@@ -524,7 +524,6 @@ def spoof_engine_ui(cfg):
 
     ok_count = sum(1 for r in results if r.get('ok'))
     fail_count = len(results) - ok_count
-
     console.print(f"\n[bold green]✔ Selesai! Berhasil: {ok_count} | Gagal: {fail_count} | Total: {len(results)}[/bold green]")
 
     for r in results:
