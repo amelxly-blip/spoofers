@@ -232,22 +232,33 @@ def download_yt(url, save_dir, speed_val=None):
         }],
         'quiet': True,
         'no_warnings': True,
+        'noprogress': True,
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         title = info.get('title', 'Unknown')
         filename = ydl.prepare_filename(info).rsplit('.', 1)[0] + '.mp3'
+        if not os.path.exists(filename):
+            mp3s = [os.path.join(save_dir, f) for f in os.listdir(save_dir) if f.endswith('.mp3')]
+            if mp3s:
+                filename = max(mp3s, key=os.path.getmtime)
         return filename, title
 
 def apply_speed(file_path, speed_val, save_dir):
     out_path = os.path.join(save_dir, f"speed_{os.path.basename(file_path)}")
-    filters, v = [], speed_val
-    while v > 2.0: filters.append("atempo=2.0"); v /= 2.0
-    filters.append(f"atempo={v:.3f}")
     try:
+        v = float(speed_val)
+        filters = []
+        while v > 2.0: filters.append("atempo=2.0"); v /= 2.0
+        while v < 0.5: filters.append("atempo=0.5"); v /= 0.5
+        filters.append(f"atempo={v:.3f}")
         subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",",".join(filters),"-q:a","0",out_path],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return out_path
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            try: os.remove(file_path)
+            except: pass
+            return out_path
+        return file_path
     except: return file_path
 
 async def upload_audio(file_path, key, target_id, title):
@@ -299,10 +310,12 @@ async def main():
     try:
         file_path, title = download_yt(url, save_dir, speed_val)
         if speed_val:
-            file_path = apply_speed(file_path, speed_dir, save_dir)
+            file_path = apply_speed(file_path, speed_val, save_dir)
         result = await upload_audio(file_path, api_key, user_id, title)
         result['title'] = title
-        try: os.remove(file_path)
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
         except: pass
         print(json.dumps(result))
     except Exception as e:
@@ -325,6 +338,11 @@ function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto') {
         proc.stderr.on('data', d => stderr += d);
         proc.on('close', () => {
             try {
+                const match = stdout.match(/\[[\s\S]*\]/);
+                if (match) {
+                    resolve(JSON.parse(match[0]));
+                    return;
+                }
                 const lines = stdout.trim().split('\n');
                 resolve(JSON.parse(lines[lines.length - 1]));
             } catch { reject(new Error(stderr || stdout || 'Unknown error')); }
@@ -341,9 +359,20 @@ function runYTUpload(url, apiKey, userId, speedVal = null) {
         proc.stderr.on('data', d => stderr += d);
         proc.on('close', () => {
             try {
+                const match = stdout.match(/\{[\s\S]*"success"[\s\S]*\}/);
+                if (match) {
+                    resolve(JSON.parse(match[0]));
+                    return;
+                }
                 const lines = stdout.trim().split('\n');
                 resolve(JSON.parse(lines[lines.length - 1]));
-            } catch { reject(new Error(stderr || stdout || 'Unknown error')); }
+            } catch {
+                const cleanError = (stderr || stdout || 'Unknown error')
+                    .replace(/\[download\][^\n\r]*/g, '')
+                    .replace(/[\r\n]+/g, ' ')
+                    .trim();
+                reject(new Error(cleanError || 'Gagal download / upload YouTube'));
+            }
         });
     });
 }
