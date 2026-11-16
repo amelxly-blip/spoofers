@@ -39,12 +39,39 @@ function getOwner() {
 function getUserFile(nomor) { return path.join(USERS_DIR, `${nomor}.json`); }
 
 function getUser(nomor) {
-    const file = getUserFile(nomor);
-    if (!fs.existsSync(file)) return null;
-    try { return JSON.parse(fs.readFileSync(file)); } catch { return null; }
+    if (!nomor) return null;
+    let file = getUserFile(nomor);
+    if (fs.existsSync(file)) {
+        try { return JSON.parse(fs.readFileSync(file)); } catch { return null; }
+    }
+    // Coba fallback jika format berbeda (08xxx vs 628xxx atau LID owner)
+    let alt = null;
+    if (nomor.startsWith('08')) alt = '628' + nomor.slice(2);
+    else if (nomor.startsWith('628')) alt = '08' + nomor.slice(3);
+    else if (nomor === '114246734070008') alt = '6282174905591';
+    else if (nomor === '6282174905591' || nomor === '082174905591') alt = '114246734070008';
+
+    if (alt) {
+        file = getUserFile(alt);
+        if (fs.existsSync(file)) {
+            try { return JSON.parse(fs.readFileSync(file)); } catch { return null; }
+        }
+    }
+    return null;
 }
 
-function saveUser(nomor, data) { fs.writeFileSync(getUserFile(nomor), JSON.stringify(data, null, 2)); }
+function saveUser(nomor, data) {
+    if (!nomor) return;
+    try {
+        fs.writeFileSync(getUserFile(nomor), JSON.stringify(data, null, 2));
+        // Sinkronisasi khusus owner profil & group LID
+        if (nomor === '6282174905591' || nomor === '082174905591') {
+            fs.writeFileSync(getUserFile('114246734070008'), JSON.stringify(data, null, 2));
+        } else if (nomor === '114246734070008') {
+            fs.writeFileSync(getUserFile('6282174905591'), JSON.stringify(data, null, 2));
+        }
+    } catch {}
+}
 
 function createUser(nomor) {
     const data = {
@@ -100,14 +127,31 @@ function useQuota(nomor, count = 1) {
     saveUser(nomor, user);
 }
 
-function addVIP(nomor, days) {
+function addVIP(nomor, days = 30) {
     let user = getUser(nomor) || createUser(nomor);
     user.role = 'vip';
     const until = new Date();
-    until.setDate(until.getDate() + days);
+    until.setDate(until.getDate() + parseInt(days, 10));
     user.vip_until = until.toISOString();
     user.quota.limit = 999999;
+    user.quota.used = 0;
     saveUser(nomor, user);
+
+    if (nomor === '6282174905591' || nomor === '082174905591') {
+        let u2 = getUser('114246734070008') || createUser('114246734070008');
+        u2.role = 'vip';
+        u2.vip_until = user.vip_until;
+        u2.quota.limit = 999999;
+        u2.quota.used = 0;
+        saveUser('114246734070008', u2);
+    } else if (nomor === '114246734070008') {
+        let u2 = getUser('6282174905591') || createUser('6282174905591');
+        u2.role = 'vip';
+        u2.vip_until = user.vip_until;
+        u2.quota.limit = 999999;
+        u2.quota.used = 0;
+        saveUser('6282174905591', u2);
+    }
     return user;
 }
 

@@ -241,6 +241,11 @@ jalankan_bot() {
         menu_utama
         return
     fi
+    # Bersihkan sisa proses node lama agar tidak bentrok
+    killall -9 node 2>/dev/null
+    pkill -9 -f "node index.js" 2>/dev/null
+    rm -f "$PID_FILE"
+    sleep 1
     load_config
     echo -e "  ${CYAN}Menjalankan bot di background...${NC}"
     mkdir -p "$BOT_DIR"
@@ -266,13 +271,14 @@ jalankan_bot() {
 
 hentikan_bot() {
     header
-    if is_running; then
+    killall -9 node 2>/dev/null
+    pkill -9 -f "node index.js" 2>/dev/null
+    if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
-        kill "$PID" 2>/dev/null
         rm -f "$PID_FILE"
         echo -e "  ${GREEN}✅ Bot dihentikan (PID: $PID)${NC}"
     else
-        echo -e "  ${YELLOW}⚠️  Bot tidak sedang running.${NC}"
+        echo -e "  ${GREEN}✅ Semua proses bot dihentikan.${NC}"
     fi
     echo ""
     echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
@@ -283,13 +289,11 @@ hentikan_bot() {
 restart_bot() {
     header
     echo -e "  ${CYAN}Merestart bot...${NC}"
-    if is_running; then
-        PID=$(cat "$PID_FILE")
-        kill "$PID" 2>/dev/null
-        rm -f "$PID_FILE"
-        echo -e "  ${YELLOW}Bot lama dihentikan.${NC}"
-        sleep 2
-    fi
+    killall -9 node 2>/dev/null
+    pkill -9 -f "node index.js" 2>/dev/null
+    rm -f "$PID_FILE"
+    echo -e "  ${YELLOW}Semua instance bot lama dimatikan.${NC}"
+    sleep 2
     rm -f "$HOME/yt_uploader_runner.py"
     cd "$BOT_DIR" || exit
     nohup node index.js > "$LOG_FILE" 2>&1 &

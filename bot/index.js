@@ -1,8 +1,25 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs');
+const path = require('path');
 const { getUser, saveUser, createUser, canUse, useQuota, addVIP, removeVIP, banUser, getAllVIP, checkVIP, checkAndResetQuota, getOwner, getOwnerList } = require('./users');
 const { runSpoof, runYTUpload } = require('./spoofer');
+
+// Cegah duplicate process yang menyebabkan "Key used already or never filled" dan loop disconnect
+const pidFile = path.join(__dirname, 'bot.pid');
+try {
+    if (fs.existsSync(pidFile)) {
+        const oldPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+        if (oldPid && oldPid !== process.pid) {
+            try {
+                process.kill(oldPid, 'SIGKILL');
+                console.log(`[INIT] Mematikan instance bot lama (PID: ${oldPid})`);
+            } catch {}
+        }
+    }
+    fs.writeFileSync(pidFile, String(process.pid));
+} catch {}
 
 process.on('uncaughtException', (err) => {
     console.error('⚠️ [UNCAUGHT EXCEPTION]', err?.message || err);
@@ -73,6 +90,8 @@ function speedMenu(title, showSkipNote = true) {
     return menu;
 }
 
+let isReconnecting = false;
+
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
     const { version } = await fetchLatestBaileysVersion();
@@ -83,7 +102,18 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         browser: ['SpooferBot', 'Chrome', '1.0.0'],
-        cachedGroupMetadata: async (jid) => groupCache.get(jid),
+        cachedGroupMetadata: async (jid) => {
+            let meta = groupCache.get(jid);
+            if (!meta) {
+                try {
+                    meta = await sock.groupMetadata(jid);
+                    if (meta) groupCache.set(jid, meta);
+                } catch {
+                    return null;
+                }
+            }
+            return meta;
+        },
     });
 
     sock.ev.on('groups.update', async (groups) => {
@@ -106,14 +136,22 @@ async function startBot() {
             console.log('=======================================\n');
         }
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Koneksi terputus. Reconnect:', shouldReconnect);
-            if (shouldReconnect) {
-                setTimeout(() => startBot(), 3000);
-            } else {
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log('Koneksi terputus. Reconnect:', shouldReconnect, 'Status:', statusCode);
+            if (shouldReconnect && !isReconnecting) {
+                isReconnecting = true;
+                try { sock.ev.removeAllListeners(); } catch {}
+                // Beri jeda 5 detik agar socket lama benar-benar bersih di server WhatsApp
+                setTimeout(() => {
+                    isReconnecting = false;
+                    startBot();
+                }, 5000);
+            } else if (!shouldReconnect) {
                 console.log('Logged out. Hapus folder auth dan scan QR ulang.');
             }
         } else if (connection === 'open') {
+            isReconnecting = false;
             const botJid = sock.user?.id || '';
             const botNomor = getNomor(botJid);
             console.log(`✅ SpooferBot terhubung! Nomor Bot: ${botNomor || 'Terdeteksi'}`);
@@ -169,8 +207,19 @@ async function startBot() {
                 rawSender = botNomor || currentOwner || rawSender;
             }
 
-            const nomor = getNomor(rawSender);
+            let nomor = getNomor(rawSender);
             if (!nomor) continue;
+
+            // Jika pengirim adalah LID owner di grup, langsung hubungkan ke nomor owner
+            if (nomor === '114246734070008') {
+                nomor = '6282174905591';
+            }
+
+            if (isGroup && !groupCache.has(jid)) {
+                sock.groupMetadata(jid).then(meta => {
+                    if (meta) groupCache.set(jid, meta);
+                }).catch(() => {});
+            }
 
             const normUser = normalizeNomor(nomor);
 
@@ -189,12 +238,18 @@ async function startBot() {
             console.log(`[MSG] Dari: ${nomor} (fromMe: ${isFromMe}) | OwnerList: [${ownerList.join(', ')}] | isOwner: ${isOwner} | Text: "${text}"`);
 
             const quoted = inner?.extendedTextMessage?.contextInfo;
-            const reply = async (t, delayMs = 1000) => {
+            const reply = async (t, delayMs = 500) => {
                 if (delayMs > 0) await sleep(delayMs);
-                try {
-                    return await sock.sendMessage(jid, { text: t });
-                } catch (sendErr) {
-                    console.error('⚠️ Gagal kirim pesan WA:', sendErr?.message || sendErr);
+                for (let attempt = 1; attempt <= 2; attempt++) {
+                    try {
+                        return await sock.sendMessage(jid, { text: t });
+                    } catch (sendErr) {
+                        if (attempt === 1) {
+                            await sleep(1500);
+                        } else {
+                            console.error('⚠️ Gagal kirim pesan WA:', sendErr?.message || sendErr);
+                        }
+                    }
                 }
             };
 
@@ -516,12 +571,28 @@ async function startBot() {
 
             if (!isOwner) continue;
 
-            const addPremMatch = text.match(/^\.addpremium\s*@?(\d+)[_\s]+(\d+)\s*(?:day|hari)?$/i);
-            if (addPremMatch) {
-                const targetNomor = addPremMatch[1];
-                const days = parseInt(addPremMatch[2], 10);
+            // Dukung 2 cara:
+            // 1. Reply / Quote chat member di grup lalu ketik: .addpremium 30
+            // 2. Ketik langsung: .addpremium @6282174905591_30day atau .addpremium 6282174905591 30
+            let targetNomor = null;
+            let days = 30;
+
+            const quotedParticipant = quoted?.participant || inner?.extendedTextMessage?.contextInfo?.participant;
+            const quoteMatch = text.match(/^\.addpremium(?:\s+(\d+)\s*(?:day|hari)?)?$/i);
+            if (quoteMatch && quotedParticipant) {
+                targetNomor = getNomor(quotedParticipant);
+                if (quoteMatch[1]) days = parseInt(quoteMatch[1], 10);
+            } else {
+                const addPremMatch = text.match(/^\.addpremium\s*@?(\d+)[_\s]*(\d+)?\s*(?:day|hari)?$/i);
+                if (addPremMatch) {
+                    targetNomor = addPremMatch[1];
+                    if (addPremMatch[2]) days = parseInt(addPremMatch[2], 10);
+                }
+            }
+
+            if (targetNomor) {
                 addVIP(targetNomor, days);
-                await reply(`✅ Berhasil! @${targetNomor} diupgrade ke VIP selama ${days} hari!`, 2000);
+                await reply(`👑 *SUKSES UPGRADE VIP!*\n\n📱 Target: \`@${targetNomor}\`\n⏳ Durasi: *${days} Hari*\n📦 Kuota: *Unlimited ♾️*`, 1000);
                 continue;
             }
 
