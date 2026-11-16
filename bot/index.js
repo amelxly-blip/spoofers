@@ -1,5 +1,6 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
+const qrcode = require('qrcode-terminal');
 const { getUser, saveUser, createUser, canUse, useQuota, addVIP, removeVIP, banUser, getAllVIP, checkVIP, checkAndResetQuota, OWNER } = require('./users');
 const { runSpoof, runYTUpload } = require('./spoofer');
 
@@ -41,17 +42,29 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
     const { version } = await fetchLatestBaileysVersion();
     const sock = makeWASocket({
-        version, auth: state,
+        version,
+        auth: state,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true,
+        printQRInTerminal: false,
         browser: ['SpooferBot', 'Chrome', '1.0.0'],
     });
 
     sock.ev.on('creds.update', saveCreds);
-    sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
+
+    sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
+        if (qr) {
+            console.log('\n========== SCAN QR CODE INI ==========');
+            qrcode.generate(qr, { small: true });
+            console.log('=======================================\n');
+        }
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
+            console.log('Koneksi terputus. Reconnect:', shouldReconnect);
+            if (shouldReconnect) {
+                setTimeout(() => startBot(), 3000);
+            } else {
+                console.log('Logged out. Hapus folder auth dan scan QR ulang.');
+            }
         } else if (connection === 'open') {
             console.log('✅ SpooferBot terhubung!');
         }
@@ -70,7 +83,6 @@ async function startBot() {
             const quotedText = quoted?.quotedMessage?.conversation || quoted?.quotedMessage?.extendedTextMessage?.text || '';
             const reply = async (t) => sock.sendMessage(jid, { text: t }, { quoted: msg });
 
-            // ── SETUP AKUN ──
             if (text.toLowerCase() === '.setupakun') {
                 if (!isPrivate) {
                     await sock.sendMessage(jid, { text: `📩 Cek DM bot ini ya! Setup akun di chat pribadi.` }, { quoted: msg });
@@ -83,7 +95,6 @@ async function startBot() {
                 continue;
             }
 
-            // ── INPUT API KEY via DM ──
             if (isPrivate && text.toLowerCase().startsWith('.apikey:')) {
                 const apiKey = text.slice(8).trim();
                 let user = getUser(nomor) || createUser(nomor);
@@ -93,7 +104,6 @@ async function startBot() {
                 continue;
             }
 
-            // ── INPUT USER ID via DM ──
             if (isPrivate && text.toLowerCase().startsWith('.userid:')) {
                 const userId = text.slice(8).trim();
                 let user = getUser(nomor) || createUser(nomor);
@@ -115,7 +125,6 @@ async function startBot() {
                 continue;
             }
 
-            // ── CEK STATUS ──
             if (text.toLowerCase() === '.cekstatus') {
                 let user = getUser(nomor);
                 if (!user) { await reply(`❌ Belum daftar. Ketik *.setupakun* dulu!`); continue; }
@@ -136,7 +145,6 @@ async function startBot() {
                 continue;
             }
 
-            // ── HELP ──
             if (text.toLowerCase() === '.help') {
                 await reply(
                     `🔥 *SPOOFER BOT - TUTORIAL*\n\n` +
@@ -169,7 +177,6 @@ async function startBot() {
                 continue;
             }
 
-            // ── SPOOF ──
             if (text.toLowerCase().startsWith('.spoof')) {
                 const idPart = text.slice(6).trim();
                 const ids = parseIds(idPart);
@@ -190,7 +197,6 @@ async function startBot() {
                 continue;
             }
 
-            // ── UPLOAD YT ──
             if (text.toLowerCase().startsWith('.upload')) {
                 const url = text.slice(7).trim();
                 if (!url.startsWith('http')) { await reply(`❌ Format salah!\nContoh: .upload https://youtu.be/xxx`); continue; }
@@ -210,7 +216,6 @@ async function startBot() {
                 continue;
             }
 
-            // ── REPLY PILIH SPEED ──
             if (quoted && pendingAction.has(nomor)) {
                 const pending = pendingAction.get(nomor);
                 const choice = text.trim();
@@ -273,7 +278,6 @@ async function startBot() {
                 continue;
             }
 
-            // ── OWNER COMMANDS ──
             if (!isOwner) continue;
 
             const addPremMatch = text.match(/^\.addpremium@(\d+)_(\d+)day$/i);
