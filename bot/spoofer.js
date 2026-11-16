@@ -49,16 +49,31 @@ def make_headers(cookie):
 
 async def get_asset_details(session, aid, headers):
     name, creator_name, creator_id, asset_type_name = None, None, None, None
+    # 1. Endpoint Utama: Economy API v2 (Roblox telah mematikan v1 menjadi 404, v2 adalah endpoint terbaik & paling akurat)
     try:
-        async with session.get(f'https://economy.roblox.com/v1/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+        async with session.get(f'https://economy.roblox.com/v2/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
             if r.status == 200:
                 d = await r.json(content_type=None)
-                name = d.get('Name')
+                name = d.get('Name') or d.get('TargetName')
                 asset_type_name = ASSET_TYPE_IDS.get(d.get('AssetTypeId'))
                 creator = d.get('Creator', {})
-                creator_id = creator.get('CreatorTargetId')
+                creator_id = creator.get('CreatorTargetId') or creator.get('Id')
                 creator_name = creator.get('Name')
     except: pass
+
+    # 2. Fallback: Develop API
+    if not name:
+        try:
+            async with session.get(f'https://develop.roblox.com/v1/assets?assetIds={aid}', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status == 200:
+                    d = await r.json(content_type=None)
+                    items = d.get('data', [])
+                    if items:
+                        name = items[0].get('name')
+                        if not asset_type_name: asset_type_name = ASSET_TYPE_IDS.get(items[0].get('assetTypeId'))
+        except: pass
+
+    # 3. Fallback: Toolbox Service
     if not name:
         try:
             async with session.get(f'https://apis.roblox.com/toolbox-service/v1/items/details?assetIds={aid}', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
@@ -182,14 +197,20 @@ async def op_check(session, op_id, key):
     return {'state': 'fail', 'error': 'No ID'}
 
 async def process_speed(file_path, speed_val, save_dir, aid):
+    if not speed_val or float(speed_val) == 1.0:
+        return file_path
     out_path = os.path.join(save_dir, f"speed_{aid}.mp3")
-    filters, v = [], speed_val
+    v = float(speed_val)
+    filters = []
     while v > 2.0: filters.append("atempo=2.0"); v /= 2.0
+    while v < 0.5: filters.append("atempo=0.5"); v /= 0.5
     filters.append(f"atempo={v:.3f}")
     try:
-        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",",".join(filters),"-q:a","0",out_path],
+        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",",".join(filters),"-b:a","320k","-ar","44100",out_path],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        return out_path
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            return out_path
+        return file_path
     except: return file_path
 
 async def main():
@@ -236,6 +257,24 @@ async def main():
                 except:
                     final_type = 'Model'
 
+            # Jika nama masih belum didapat dari API publik, coba ekstrak dari metadata binary/xml file
+            if not name or display_name == f"Asset_{aid}":
+                try:
+                    with open(file_path, 'rb') as fh:
+                        raw_c = fh.read(65536)
+                        import re
+                        m = re.search(rb'<string name="Name">(.*?)</string>', raw_c)
+                        if m:
+                            extracted = m.group(1).decode('utf-8', errors='ignore').strip()
+                            if extracted and extracted not in ('Animation', 'KeyframeSequence', 'Model', 'Folder'):
+                                display_name = extracted
+                except: pass
+
+            # Jika masih belum ada, beri nama deskriptif sesuai jenisnya (misal: Audio_1234567)
+            if display_name == f"Asset_{aid}":
+                t_label = final_type if final_type and final_type != 'auto' else 'Asset'
+                display_name = f"{t_label}_{aid}"
+
             # Speed hanya diapply ke Audio
             if final_type == 'Audio' and speed_val:
                 file_path = await process_speed(file_path, speed_val, save_dir, aid)
@@ -281,7 +320,7 @@ def download_yt(url, save_dir, speed_val=None):
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '192',
+            'preferredquality': '320',
         }],
         'quiet': True,
         'no_warnings': True,
@@ -298,6 +337,8 @@ def download_yt(url, save_dir, speed_val=None):
         return filename, title
 
 def apply_speed(file_path, speed_val, save_dir):
+    if not speed_val or float(speed_val) == 1.0:
+        return file_path
     out_path = os.path.join(save_dir, f"speed_{os.path.basename(file_path)}")
     try:
         v = float(speed_val)
@@ -305,7 +346,7 @@ def apply_speed(file_path, speed_val, save_dir):
         while v > 2.0: filters.append("atempo=2.0"); v /= 2.0
         while v < 0.5: filters.append("atempo=0.5"); v /= 0.5
         filters.append(f"atempo={v:.3f}")
-        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",",".join(filters),"-q:a","0",out_path],
+        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",",".join(filters),"-b:a","320k","-ar","44100",out_path],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             try: os.remove(file_path)

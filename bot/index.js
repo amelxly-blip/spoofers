@@ -30,7 +30,7 @@ process.on('unhandledRejection', (err) => {
 
 const SPEED_OPTIONS = {
     "1": { label: "0.8x", val: 0.8, rec: "1.25x" },
-    "2": { label: "1.0x (Normal)", val: 1.0, rec: "1.00x" },
+    "2": { label: "1.0x (Normal - Suara Asli Jernih)", val: null, rec: "1.00x" },
     "3": { label: "1.2x", val: 1.2, rec: "0.83x" },
     "4": { label: "1.5x ⭐ RECOMMENDED", val: 1.5, rec: "0.67x" },
     "5": { label: "1.8x", val: 1.8, rec: "0.56x" },
