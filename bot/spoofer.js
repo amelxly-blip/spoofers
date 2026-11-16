@@ -32,7 +32,14 @@ def load_place_cache():
     return cache
 
 PLACE_CACHE = load_place_cache()
-COOKIE = json.loads((Path.home() / ".uploader_config.json").read_text()).get("cookie", "")
+
+cfg_path = Path.home() / ".uploader_config.json"
+COOKIE = ""
+if cfg_path.exists():
+    try:
+        COOKIE = json.loads(cfg_path.read_text()).get("cookie", "")
+    except: pass
+
 ASSET_TYPE_IDS = {1:'Image',3:'Audio',4:'Mesh',9:'Place',10:'Model',13:'Decal',24:'Animation',38:'Plugin',40:'MeshPart',62:'Video'}
 
 def make_headers(cookie):
@@ -292,7 +299,7 @@ async def main():
     try:
         file_path, title = download_yt(url, save_dir, speed_val)
         if speed_val:
-            file_path = apply_speed(file_path, speed_val, save_dir)
+            file_path = apply_speed(file_path, speed_dir, save_dir)
         result = await upload_audio(file_path, api_key, user_id, title)
         result['title'] = title
         try: os.remove(file_path)
