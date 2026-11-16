@@ -31,6 +31,7 @@ save_config() {
     cat > "$CONFIG_FILE" <<EOF
 BOT_COOKIE="$BOT_COOKIE"
 BOT_NOMOR="$BOT_NOMOR"
+BOT_OWNER="$BOT_OWNER"
 EOF
 }
 
@@ -62,9 +63,11 @@ header() {
         echo -e "  Status Bot : ${RED}● STOPPED${NC}"
     fi
     NOMOR_DISPLAY="${BOT_NOMOR:-belum diset}"
+    OWNER_DISPLAY="${BOT_OWNER:-belum diset}"
     COOKIE_DISPLAY="${BOT_COOKIE:+sudah diset}"
     COOKIE_DISPLAY="${COOKIE_DISPLAY:-belum diset}"
     echo -e "  Nomor Bot  : ${YELLOW}$NOMOR_DISPLAY${NC}"
+    echo -e "  Nomor Owner: ${YELLOW}$OWNER_DISPLAY${NC}"
     echo -e "  Cookie     : ${YELLOW}$COOKIE_DISPLAY${NC}"
     echo -e "${BLUE}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
@@ -75,28 +78,30 @@ menu_utama() {
     echo -e "${WHITE}  MENU UTAMA${NC}"
     echo ""
     echo -e "  ${CYAN}[1]${NC} Setup Nomor Bot WA"
-    echo -e "  ${CYAN}[2]${NC} Setup Cookie Roblox"
-    echo -e "  ${CYAN}[3]${NC} Lihat Config Tersimpan"
-    echo -e "  ${CYAN}[4]${NC} Jalankan Bot"
-    echo -e "  ${CYAN}[5]${NC} Hentikan Bot"
-    echo -e "  ${CYAN}[6]${NC} Restart Bot"
-    echo -e "  ${CYAN}[7]${NC} Lihat Log Bot"
-    echo -e "  ${CYAN}[8]${NC} Install / Update Dependencies"
-    echo -e "  ${CYAN}[9]${NC} Scan QR (jika bot sudah jalan)"
+    echo -e "  ${CYAN}[2]${NC} Setup Nomor Owner / Admin"
+    echo -e "  ${CYAN}[3]${NC} Setup Cookie Roblox"
+    echo -e "  ${CYAN}[4]${NC} Lihat Config Tersimpan"
+    echo -e "  ${CYAN}[5]${NC} Jalankan Bot"
+    echo -e "  ${CYAN}[6]${NC} Hentikan Bot"
+    echo -e "  ${CYAN}[7]${NC} Restart Bot"
+    echo -e "  ${CYAN}[8]${NC} Lihat Log Bot"
+    echo -e "  ${CYAN}[9]${NC} Install / Update Dependencies"
+    echo -e "  ${CYAN}[10]${NC} Scan QR (jika bot sudah jalan)"
     echo -e "  ${RED}[0]${NC} Keluar"
     echo ""
     echo -ne "  ${WHITE}Pilih menu: ${NC}"
     read -r CHOICE
     case $CHOICE in
         1) setup_nomor ;;
-        2) setup_cookie ;;
-        3) lihat_config ;;
-        4) jalankan_bot ;;
-        5) hentikan_bot ;;
-        6) restart_bot ;;
-        7) lihat_log ;;
-        8) install_deps ;;
-        9) scan_qr ;;
+        2) setup_owner ;;
+        3) setup_cookie ;;
+        4) lihat_config ;;
+        5) jalankan_bot ;;
+        6) hentikan_bot ;;
+        7) restart_bot ;;
+        8) lihat_log ;;
+        9) install_deps ;;
+        10) scan_qr ;;
         0) echo -e "\n${GREEN}  Sampai jumpa!${NC}\n"; exit 0 ;;
         *) echo -e "\n${RED}  Pilihan tidak valid.${NC}"; sleep 1; menu_utama ;;
     esac
@@ -109,18 +114,38 @@ setup_nomor() {
     echo -e "  Masukkan nomor WA bot (format: 628xxxxxxxxxx)"
     echo -e "  ${YELLOW}Tanpa + dan tanpa spasi${NC}"
     echo ""
-    echo -ne "  Nomor: "
+    echo -ne "  Nomor Bot: "
     read -r INPUT_NOMOR
     if [[ "$INPUT_NOMOR" =~ ^[0-9]{10,15}$ ]]; then
         BOT_NOMOR="$INPUT_NOMOR"
         save_config
-        # Update OWNER di users.js
-        if [ -f "$BOT_DIR/users.js" ]; then
-            sed -i "s/const OWNER = '[^']*'/const OWNER = '$BOT_NOMOR'/" "$BOT_DIR/users.js"
-        fi
         echo ""
-        echo -e "  ${GREEN}✅ Nomor berhasil disimpan: $BOT_NOMOR${NC}"
-        echo -e "  ${GREEN}✅ OWNER di users.js sudah diupdate${NC}"
+        echo -e "  ${GREEN}✅ Nomor Bot berhasil disimpan: $BOT_NOMOR${NC}"
+    else
+        echo ""
+        echo -e "  ${RED}❌ Format nomor salah. Contoh: 628123456789${NC}"
+    fi
+    echo ""
+    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
+    read -r
+    menu_utama
+}
+
+setup_owner() {
+    header
+    echo -e "${WHITE}  SETUP NOMOR OWNER / ADMIN${NC}"
+    echo ""
+    echo -e "  Nomor ini dipakai sebagai kontak saat user kehabisan kuota / beli VIP,"
+    echo -e "  dan pemegang nomor ini punya akses perintah admin (.addpremium, dll)."
+    echo -e "  Format: 628xxxxxxxxxx (${YELLOW}tanpa + dan tanpa spasi${NC})"
+    echo ""
+    echo -ne "  Nomor Owner: "
+    read -r INPUT_OWNER
+    if [[ "$INPUT_OWNER" =~ ^[0-9]{10,15}$ ]]; then
+        BOT_OWNER="$INPUT_OWNER"
+        save_config
+        echo ""
+        echo -e "  ${GREEN}✅ Nomor Owner berhasil disimpan: $BOT_OWNER${NC}"
     else
         echo ""
         echo -e "  ${RED}❌ Format nomor salah. Contoh: 628123456789${NC}"
@@ -177,6 +202,7 @@ lihat_config() {
     echo ""
     load_config
     echo -e "  Nomor Bot  : ${YELLOW}${BOT_NOMOR:-belum diset}${NC}"
+    echo -e "  Nomor Owner: ${YELLOW}${BOT_OWNER:-belum diset}${NC}"
     if [ -n "$BOT_COOKIE" ]; then
         PREVIEW="${BOT_COOKIE:0:30}..."
         echo -e "  Cookie     : ${YELLOW}$PREVIEW${NC}"

@@ -3,7 +3,19 @@ const path = require('path');
 const USERS_DIR = path.join(__dirname, 'users');
 if (!fs.existsSync(USERS_DIR)) fs.mkdirSync(USERS_DIR);
 
-const OWNER = '6282174905591';
+let OWNER = '6282174905591';
+
+function getOwner() {
+    const configPath = path.join(__dirname, '.bot_config');
+    if (fs.existsSync(configPath)) {
+        try {
+            const raw = fs.readFileSync(configPath, 'utf8');
+            const match = raw.match(/BOT_OWNER="?([^"\n\r]+)"?/);
+            if (match && match[1]) return match[1].trim();
+        } catch {}
+    }
+    return OWNER;
+}
 
 function getUserFile(nomor) { return path.join(USERS_DIR, `${nomor}.json`); }
 
@@ -108,4 +120,17 @@ function getAllVIP() {
     return vips;
 }
 
-module.exports = { getUser, saveUser, createUser, canUse, useQuota, addVIP, removeVIP, banUser, getAllVIP, checkVIP, checkAndResetQuota, OWNER };
+module.exports = {
+    getUser,
+    saveUser,
+    createUser,
+    canUse,
+    useQuota,
+    addVIP,
+    removeVIP,
+    banUser,
+    getAllVIP,
+    checkVIP,
+    checkAndResetQuota,
+    get OWNER() { return getOwner(); }
+};

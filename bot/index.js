@@ -18,6 +18,20 @@ const SPEED_OPTIONS = {
 
 const pendingAction = new Map();
 
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+
+function parseUrls(text) {
+    const urls = [];
+    const matches = text.match(/https?:\/\/[^\s,;]+/gi) || [];
+    for (const m of matches) {
+        const u = m.trim();
+        if (u && !urls.includes(u)) {
+            urls.push(u);
+        }
+    }
+    return urls;
+}
+
 function parseIds(text) {
     const out = [];
     for (const tok of text.split(/[\s,;]+/)) {
@@ -87,7 +101,16 @@ async function startBot() {
                 msg.message?.videoMessage?.caption || ''
             ).trim();
             const quoted = msg.message?.extendedTextMessage?.contextInfo;
-            const reply = async (t) => sock.sendMessage(jid, { text: t }, { quoted: msg });
+            const reply = async (t, delayMs = 5000) => {
+                try {
+                    if (delayMs > 0) {
+                        await sock.sendPresenceUpdate('composing', jid);
+                        await sleep(delayMs);
+                        await sock.sendPresenceUpdate('paused', jid);
+                    }
+                } catch {}
+                return sock.sendMessage(jid, { text: t }, { quoted: msg });
+            };
 
             // SETUP AKUN - langsung balas tanpa DM
             if (text.toLowerCase() === '.setupakun') {
@@ -184,7 +207,8 @@ async function startBot() {
                     `Contoh: .spoof 123456,789012\n\n` +
                     `📌 *UPLOAD AUDIO DARI YOUTUBE*\n` +
                     `*.upload [link YouTube]*\n` +
-                    `Contoh: .upload https://youtu.be/xxx\n\n` +
+                    `Contoh 1 lagu: .upload https://youtu.be/xxx\n` +
+                    `Multi upload : .upload https://youtu.be/link1, https://youtu.be/link2\n\n` +
                     `📌 *KUOTA*\n` +
                     `🆓 Free: 10x upload/hari\n` +
                     `👑 VIP: Unlimited\n` +
@@ -218,21 +242,47 @@ async function startBot() {
             }
 
             if (text.toLowerCase().startsWith('.upload')) {
-                const url = text.slice(7).trim();
-                if (!url.startsWith('http')) { await reply(`❌ Format salah!\nContoh: .upload https://youtu.be/xxx`); continue; }
+                const urls = parseUrls(text);
+                if (!urls.length) {
+                    await reply(`❌ Format salah!\n\nContoh upload 1 lagu:\n.upload https://youtu.be/xxx\n\nContoh upload banyak sekaligus:\n.upload https://youtu.be/link1, https://youtu.be/link2`);
+                    continue;
+                }
 
                 const check = canUse(nomor);
                 if (check.reason === 'not_registered') { await reply(`❌ Belum daftar!\nKetik *.setupakun* dulu.`); continue; }
                 if (check.reason === 'banned') { await reply(`🚫 Akun kamu dibanned. Hubungi admin.`); continue; }
                 if (check.reason === 'no_account') { await reply(`❌ Akun Roblox belum terhubung!\nKetik *.setupakun* dulu.`); continue; }
                 if (check.reason === 'quota_habis') {
-                    await reply(`⛔ *KUOTA HARIAN ANDA TELAH HABIS*\n\nSegera BUY VIP ke nomor:\n📱 *${OWNER}*\n\nAtau tunggu *24 jam* untuk melakukan spoof kembali.`);
+                    await reply(`⛔ *KUOTA HARIAN ANDA TELAH HABIS*\n\nSegera BUY VIP ke nomor:\n📱 *${OWNER}*\n\nAtau tunggu *24 jam* untuk melakukan upload kembali.`);
                     continue;
                 }
 
-                const user = getUser(nomor);
-                pendingAction.set(nomor, { type: 'yt', url, api_key: user.api_key, user_id: user.user_id, jid, msg });
-                await reply(speedMenu('Pilih Speed Bypass Audio YT'));
+                let user = getUser(nomor);
+                const remainingQuota = user.role === 'vip' ? 999999 : Math.max(0, user.quota.limit - user.quota.used);
+                let toProcess = urls;
+                let skippedCount = 0;
+
+                if (user.role !== 'vip' && urls.length > remainingQuota) {
+                    toProcess = urls.slice(0, remainingQuota);
+                    skippedCount = urls.length - remainingQuota;
+                }
+
+                pendingAction.set(nomor, {
+                    type: 'yt',
+                    urls: toProcess,
+                    skippedCount,
+                    totalRequested: urls.length,
+                    api_key: user.api_key,
+                    user_id: user.user_id,
+                    jid,
+                    msg
+                });
+
+                let menuTitle = 'Pilih Speed Bypass Audio YT';
+                if (toProcess.length > 1) {
+                    menuTitle += ` (${toProcess.length} Lagu)`;
+                }
+                await reply(speedMenu(menuTitle));
                 continue;
             }
 
@@ -253,7 +303,7 @@ async function startBot() {
                 pendingAction.delete(nomor);
 
                 if (pending.type === 'spoof') {
-                    await sock.sendMessage(pending.jid, { text: `⏳ Memproses ${pending.ids.length} ID... Mohon tunggu!` }, { quoted: pending.msg });
+                    await reply(`⏳ Memproses ${pending.ids.length} ID... Mohon tunggu!`, 2000);
                     try {
                         const assetType = speedVal ? 'Audio' : 'auto';
                         const results = await runSpoof(pending.ids, pending.api_key, pending.user_id, speedVal, assetType);
@@ -268,32 +318,66 @@ async function startBot() {
 
                         const user = getUser(nomor);
                         if (user.role === 'free') res += `📦 Sisa kuota: ${user.quota.limit - user.quota.used}x`;
-                        await sock.sendMessage(pending.jid, { text: res }, { quoted: pending.msg });
+                        await reply(res.trim(), 4000);
                     } catch (e) {
-                        await sock.sendMessage(pending.jid, { text: `❌ Error: ${e.message}` }, { quoted: pending.msg });
+                        await reply(`❌ Error: ${e.message}`, 2000);
                     }
 
                 } else if (pending.type === 'yt') {
-                    await sock.sendMessage(pending.jid, { text: `⏳ Downloading & processing audio dari YouTube...\nMohon tunggu!` }, { quoted: pending.msg });
-                    try {
-                        const result = await runYTUpload(pending.url, pending.api_key, pending.user_id, speedVal);
-                        if (result.success) {
-                            useQuota(nomor, 1);
-                            const speedInfo = speedVal ? `\n🎚️ Speed: ${SPEED_OPTIONS[choice]?.label}\n📻 Playback in-game: ${SPEED_OPTIONS[choice]?.rec}` : '';
-                            const user = getUser(nomor);
-                            const sisaKuota = user.role === 'free' ? `\n📦 Sisa kuota: ${user.quota.limit - user.quota.used}x` : '';
-                            await sock.sendMessage(pending.jid, {
-                                text: `✅ *UPLOAD BERHASIL!*\n\n` +
-                                      `🎵 Judul: *${result.title}*\n` +
-                                      `🆔 Asset ID: \`${result.asset_id}\`` +
-                                      speedInfo + sisaKuota
-                            }, { quoted: pending.msg });
-                        } else {
-                            await sock.sendMessage(pending.jid, { text: `❌ Gagal upload: ${result.error}` }, { quoted: pending.msg });
+                    const totalSongs = pending.urls.length;
+                    const songWord = totalSongs > 1 ? `${totalSongs} audio` : `audio`;
+                    await reply(`⏳ Downloading & processing ${songWord} dari YouTube...\nMohon tunggu ya!`, 2000);
+
+                    const successList = [];
+                    const failList = [];
+
+                    for (let i = 0; i < pending.urls.length; i++) {
+                        const songUrl = pending.urls[i];
+                        try {
+                            const result = await runYTUpload(songUrl, pending.api_key, pending.user_id, speedVal);
+                            if (result && result.success) {
+                                useQuota(nomor, 1);
+                                successList.push(result);
+                            } else {
+                                failList.push({ url: songUrl, error: result?.error || 'Gagal upload' });
+                            }
+                        } catch (err) {
+                            failList.push({ url: songUrl, error: err.message });
                         }
-                    } catch (e) {
-                        await sock.sendMessage(pending.jid, { text: `❌ Error: ${e.message}` }, { quoted: pending.msg });
                     }
+
+                    const user = getUser(nomor);
+                    const sisaKuota = user.role === 'vip' ? 'Unlimited ♾️' : `${user.quota.limit - user.quota.used}x`;
+
+                    let res = '';
+                    if (successList.length > 0) {
+                        res += `✅ *UPLOAD BERHASIL!*\n\n`;
+                        for (const item of successList) {
+                            res += `🎵 Judul: *${item.title}*\n` +
+                                   `🆔 Asset ID: \`${item.asset_id}\`\n`;
+                            if (speedVal) {
+                                res += `🎚️ Speed: ${SPEED_OPTIONS[choice]?.label}\n` +
+                                       `📻 Playback in-game: ${SPEED_OPTIONS[choice]?.rec}\n`;
+                            }
+                            res += `\n`;
+                        }
+                    }
+
+                    if (failList.length > 0) {
+                        res += `❌ *GAGAL UPLOAD*\n`;
+                        for (const f of failList) {
+                            res += `• ${f.url}: ${f.error}\n`;
+                        }
+                        res += `\n`;
+                    }
+
+                    if (pending.skippedCount > 0) {
+                        res += `⚠️ *${pending.skippedCount} lagu tidak diproses* karena melebihi sisa kuota harian kamu.\n\n`;
+                    }
+
+                    res += `📦 Sisa kuota: ${sisaKuota}`;
+
+                    await reply(res.trim(), 4000);
                 }
                 continue;
             }
