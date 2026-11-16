@@ -75,12 +75,18 @@ async function startBot() {
         for (const msg of messages) {
             if (!msg.message || msg.key.fromMe) continue;
             const jid = msg.key.remoteJid;
-            const nomor = getNomor(msg.key.participant || jid);
+            const isGroup = jid.endsWith('@g.us');
             const isPrivate = jid.endsWith('@s.whatsapp.net');
+            const nomor = getNomor(isGroup ? (msg.key.participant || jid) : jid);
+            if (!nomor) continue;
             const isOwner = nomor === OWNER;
-            const text = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || '').trim();
+            const text = (
+                msg.message?.conversation ||
+                msg.message?.extendedTextMessage?.text ||
+                msg.message?.imageMessage?.caption ||
+                msg.message?.videoMessage?.caption || ''
+            ).trim();
             const quoted = msg.message?.extendedTextMessage?.contextInfo;
-            const quotedText = quoted?.quotedMessage?.conversation || quoted?.quotedMessage?.extendedTextMessage?.text || '';
             const reply = async (t) => sock.sendMessage(jid, { text: t }, { quoted: msg });
 
             if (text.toLowerCase() === '.setupakun') {
