@@ -46,6 +46,14 @@ function getNomor(jid) {
     return jid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
 }
 
+function normalizeNomor(num) {
+    if (!num) return '';
+    let clean = String(num).replace(/[^0-9]/g, '');
+    if (clean.startsWith('08')) clean = '628' + clean.slice(2);
+    if (clean.startsWith('8')) clean = '628' + clean.slice(1);
+    return clean;
+}
+
 function speedMenu(title, showSkipNote = true) {
     let menu = `🎵 *${title}*\n\n`;
     for (const [k, v] of Object.entries(SPEED_OPTIONS)) {
@@ -107,23 +115,45 @@ async function startBot() {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
         for (const msg of messages) {
-            if (!msg.message || msg.key.fromMe) continue;
-            const jid = msg.key.remoteJid;
-            const isGroup = jid.endsWith('@g.us');
-            const isPrivate = jid.endsWith('@s.whatsapp.net');
-            const nomor = getNomor(isGroup ? (msg.key.participant || jid) : jid);
-            if (!nomor) continue;
-            const currentOwner = (getOwner() || '').trim().replace(/[^0-9]/g, '');
-            const isOwner = Boolean(nomor && currentOwner && (
-                nomor === currentOwner ||
-                (nomor.length >= 10 && currentOwner.length >= 10 && (nomor.endsWith(currentOwner) || currentOwner.endsWith(nomor)))
-            ));
+            if (!msg.message) continue;
+
             const text = (
                 msg.message?.conversation ||
                 msg.message?.extendedTextMessage?.text ||
                 msg.message?.imageMessage?.caption ||
                 msg.message?.videoMessage?.caption || ''
             ).trim();
+
+            const isFromMe = Boolean(msg.key.fromMe);
+            // Abaikan pesan jika dari bot sendiri KECUALI diawali perintah '.' (owner mengetik di HP bot)
+            if (isFromMe && !text.startsWith('.')) continue;
+
+            const jid = msg.key.remoteJid;
+            const isGroup = jid.endsWith('@g.us');
+            const isPrivate = jid.endsWith('@s.whatsapp.net');
+
+            const currentOwner = (getOwner() || '').trim().replace(/[^0-9]/g, '');
+            const botJid = sock.user?.id || '';
+            const botNomor = getNomor(botJid);
+
+            let rawSender = isGroup ? (msg.key.participant || msg.participant || jid) : jid;
+            if (isFromMe) {
+                rawSender = botNomor || currentOwner || rawSender;
+            }
+
+            const nomor = getNomor(rawSender);
+            if (!nomor) continue;
+
+            const normUser = normalizeNomor(nomor);
+            const normOwner = normalizeNomor(currentOwner);
+
+            const isOwner = isFromMe || Boolean(normUser && normOwner && (
+                normUser === normOwner ||
+                (normUser.length >= 9 && normOwner.length >= 9 && (normUser.endsWith(normOwner) || normOwner.endsWith(normUser)))
+            ));
+
+            console.log(`[MSG] Dari: ${nomor} (fromMe: ${isFromMe}) | Owner: ${currentOwner} | isOwner: ${isOwner} | Text: "${text}"`);
+
             const quoted = msg.message?.extendedTextMessage?.contextInfo;
             const reply = async (t, delayMs = 5000) => {
                 try {
@@ -135,6 +165,11 @@ async function startBot() {
                 } catch {}
                 return sock.sendMessage(jid, { text: t }, { quoted: msg });
             };
+
+            if (text.toLowerCase() === '.myid' || text.toLowerCase() === '.cekowner') {
+                await reply(`📱 *INFO STATUS OWNER*\n\nNomor Anda: \`${nomor}\`\nPengirim Sendiri (fromMe): \`${isFromMe}\`\nOwner di Config: \`${currentOwner || '6282174905591'}\`\nStatus Akses Owner: *${isOwner ? '✅ AKTIF (ANDA OWNER)' : '❌ BUKAN OWNER'}*`, 0);
+                continue;
+            }
 
             // SETUP AKUN - langsung balas tanpa DM
             if (text.toLowerCase() === '.setupakun') {

@@ -6,13 +6,23 @@ if (!fs.existsSync(USERS_DIR)) fs.mkdirSync(USERS_DIR);
 let OWNER = '6282174905591';
 
 function getOwner() {
-    const configPath = path.join(__dirname, '.bot_config');
-    if (fs.existsSync(configPath)) {
-        try {
-            const raw = fs.readFileSync(configPath, 'utf8');
-            const match = raw.match(/BOT_OWNER="?([^"\n\r]+)"?/);
-            if (match && match[1]) return match[1].trim();
-        } catch {}
+    const paths = [
+        path.join(__dirname, '.bot_config'),
+        path.join(process.cwd(), '.bot_config'),
+        path.join(require('os').homedir(), '.bot_config'),
+        path.join(require('os').homedir(), 'bot', '.bot_config')
+    ];
+    for (const p of paths) {
+        if (fs.existsSync(p)) {
+            try {
+                const raw = fs.readFileSync(p, 'utf8');
+                const matches = [...raw.matchAll(/BOT_OWNER="?([^"\n\r]+)"?/g)];
+                if (matches.length > 0) {
+                    const last = matches[matches.length - 1][1].trim();
+                    if (last) return last;
+                }
+            } catch {}
+        }
     }
     return OWNER;
 }
