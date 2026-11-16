@@ -197,16 +197,19 @@ async def op_check(session, op_id, key):
     return {'state': 'fail', 'error': 'No ID'}
 
 async def process_speed(file_path, speed_val, save_dir, aid):
-    if not speed_val or float(speed_val) == 1.0:
+    if not speed_val:
+        return file_path
+    try:
+        v = float(speed_val)
+        if v == 1.0:
+            return file_path
+    except:
         return file_path
     out_path = os.path.join(save_dir, f"speed_{aid}.mp3")
-    v = float(speed_val)
-    filters = []
-    while v > 2.0: filters.append("atempo=2.0"); v /= 2.0
-    while v < 0.5: filters.append("atempo=0.5"); v /= 0.5
-    filters.append(f"atempo={v:.3f}")
     try:
-        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",",".join(filters),"-b:a","320k","-ar","44100",out_path],
+        new_rate = int(44100 * v)
+        filter_str = f"asetrate={new_rate},aresample=44100"
+        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",filter_str,"-b:a","320k","-ar","44100",out_path],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             return out_path
@@ -337,16 +340,19 @@ def download_yt(url, save_dir, speed_val=None):
         return filename, title
 
 def apply_speed(file_path, speed_val, save_dir):
-    if not speed_val or float(speed_val) == 1.0:
+    if not speed_val:
+        return file_path
+    try:
+        v = float(speed_val)
+        if v == 1.0:
+            return file_path
+    except:
         return file_path
     out_path = os.path.join(save_dir, f"speed_{os.path.basename(file_path)}")
     try:
-        v = float(speed_val)
-        filters = []
-        while v > 2.0: filters.append("atempo=2.0"); v /= 2.0
-        while v < 0.5: filters.append("atempo=0.5"); v /= 0.5
-        filters.append(f"atempo={v:.3f}")
-        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",",".join(filters),"-b:a","320k","-ar","44100",out_path],
+        new_rate = int(44100 * v)
+        filter_str = f"asetrate={new_rate},aresample=44100"
+        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",filter_str,"-b:a","320k","-ar","44100",out_path],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             try: os.remove(file_path)

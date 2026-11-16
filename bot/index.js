@@ -609,7 +609,10 @@ async function startBot() {
                             res += `   ID Baru  : \`${r.new_id}\`\n`;
                             if (speedVal) {
                                 res += `   Speed    : ${SPEED_OPTIONS[choice]?.label}\n`;
-                                res += `   Playback : ${SPEED_OPTIONS[choice]?.rec}\n`;
+                                res += `   In-Game  : Set PlaybackSpeed = *${SPEED_OPTIONS[choice]?.rec}* (Suara Normal & Jernih)\n`;
+                            } else {
+                                res += `   Mode     : 100% Suara Asli Jernih (Lossless)\n`;
+                                res += `   In-Game  : PlaybackSpeed = *1.00x* (Default)\n`;
                             }
                             res += `\n`;
                         }
@@ -660,7 +663,10 @@ async function startBot() {
                                    `🆔 Asset ID: \`${item.asset_id}\`\n`;
                             if (speedVal) {
                                 res += `🎚️ Speed: ${SPEED_OPTIONS[choice]?.label}\n` +
-                                       `📻 Playback in-game: ${SPEED_OPTIONS[choice]?.rec}\n`;
+                                       `📻 In-Game: Set PlaybackSpeed = *${SPEED_OPTIONS[choice]?.rec}* (Suara Normal & Jernih)\n`;
+                            } else {
+                                res += `🎚️ Mode: 100% Suara Asli Jernih (320kbps HD)\n` +
+                                       `📻 In-Game: PlaybackSpeed = *1.00x* (Default)\n`;
                             }
                             res += `\n`;
                         }
