@@ -41,23 +41,33 @@ function getUserFile(nomor) { return path.join(USERS_DIR, `${nomor}.json`); }
 function getUser(nomor) {
     if (!nomor) return null;
     let file = getUserFile(nomor);
+    let user = null;
     if (fs.existsSync(file)) {
-        try { return JSON.parse(fs.readFileSync(file)); } catch { return null; }
+        try { user = JSON.parse(fs.readFileSync(file)); } catch {}
     }
-    // Coba fallback jika format berbeda (08xxx vs 628xxx atau LID owner)
-    let alt = null;
-    if (nomor.startsWith('08')) alt = '628' + nomor.slice(2);
-    else if (nomor.startsWith('628')) alt = '08' + nomor.slice(3);
-    else if (nomor === '114246734070008') alt = '6282174905591';
-    else if (nomor === '6282174905591' || nomor === '082174905591') alt = '114246734070008';
+    if (!user) {
+        // Coba fallback jika format berbeda (08xxx vs 628xxx atau LID owner)
+        let alt = null;
+        if (nomor.startsWith('08')) alt = '628' + nomor.slice(2);
+        else if (nomor.startsWith('628')) alt = '08' + nomor.slice(3);
+        else if (nomor === '114246734070008') alt = '6282174905591';
+        else if (nomor === '6282174905591' || nomor === '082174905591') alt = '114246734070008';
 
-    if (alt) {
-        file = getUserFile(alt);
-        if (fs.existsSync(file)) {
-            try { return JSON.parse(fs.readFileSync(file)); } catch { return null; }
+        if (alt) {
+            file = getUserFile(alt);
+            if (fs.existsSync(file)) {
+                try { user = JSON.parse(fs.readFileSync(file)); } catch {}
+            }
         }
     }
-    return null;
+    if (user) {
+        const owners = getOwnerList();
+        if (owners.includes(nomor) || nomor === '114246734070008' || nomor === '6282174905591' || nomor === '082174905591') {
+            user.role = 'vip';
+            user.quota.limit = 999999;
+        }
+    }
+    return user;
 }
 
 function saveUser(nomor, data) {
@@ -109,6 +119,13 @@ function canUse(nomor) {
     if (user.banned) return { ok: false, reason: 'banned' };
     if (!user.api_key || !user.user_id) return { ok: false, reason: 'no_account' };
     user = checkVIP(user); user = checkAndResetQuota(user);
+
+    const owners = getOwnerList();
+    if (owners.includes(nomor) || nomor === '114246734070008' || nomor === '6282174905591' || nomor === '082174905591') {
+        user.role = 'vip';
+        user.quota.limit = 999999;
+    }
+
     saveUser(nomor, user);
     if (user.role === 'vip') return { ok: true };
     if (user.quota.used >= user.quota.limit) return { ok: false, reason: 'quota_habis' };

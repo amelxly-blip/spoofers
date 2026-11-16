@@ -96,6 +96,21 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
     const { version } = await fetchLatestBaileysVersion();
     const groupCache = new Map();
+    const lidToPhone = new Map();
+    const phoneToLid = new Map();
+
+    function updateLidMap(meta) {
+        if (!meta || !Array.isArray(meta.participants)) return;
+        for (const p of meta.participants) {
+            const phone = getNomor(p.id);
+            const lid = getNomor(p.lid);
+            if (phone && lid) {
+                lidToPhone.set(lid, phone);
+                phoneToLid.set(phone, lid);
+            }
+        }
+    }
+
     const sock = makeWASocket({
         version,
         auth: state,
@@ -107,7 +122,10 @@ async function startBot() {
             if (!meta) {
                 try {
                     meta = await sock.groupMetadata(jid);
-                    if (meta) groupCache.set(jid, meta);
+                    if (meta) {
+                        groupCache.set(jid, meta);
+                        updateLidMap(meta);
+                    }
                 } catch {
                     return null;
                 }
@@ -121,7 +139,10 @@ async function startBot() {
             if (g?.id) {
                 try {
                     const meta = await sock.groupMetadata(g.id);
-                    if (meta) groupCache.set(g.id, meta);
+                    if (meta) {
+                        groupCache.set(g.id, meta);
+                        updateLidMap(meta);
+                    }
                 } catch {}
             }
         }
@@ -207,18 +228,28 @@ async function startBot() {
                 rawSender = botNomor || currentOwner || rawSender;
             }
 
+            if (isGroup) {
+                let meta = groupCache.get(jid);
+                if (!meta) {
+                    sock.groupMetadata(jid).then(m => {
+                        if (m) {
+                            groupCache.set(jid, m);
+                            updateLidMap(m);
+                        }
+                    }).catch(() => {});
+                } else {
+                    updateLidMap(meta);
+                }
+            }
+
             let nomor = getNomor(rawSender);
             if (!nomor) continue;
 
-            // Jika pengirim adalah LID owner di grup, langsung hubungkan ke nomor owner
-            if (nomor === '114246734070008') {
+            // Terjemahkan LID ke nomor HP jika diketahui
+            if (lidToPhone.has(nomor)) {
+                nomor = lidToPhone.get(nomor);
+            } else if (nomor === '114246734070008') {
                 nomor = '6282174905591';
-            }
-
-            if (isGroup && !groupCache.has(jid)) {
-                sock.groupMetadata(jid).then(meta => {
-                    if (meta) groupCache.set(jid, meta);
-                }).catch(() => {});
             }
 
             const normUser = normalizeNomor(nomor);
@@ -332,11 +363,22 @@ async function startBot() {
 
             if (text.toLowerCase() === '.cekstatus') {
                 let user = getUser(nomor);
+                if (!user && phoneToLid.has(nomor)) user = getUser(phoneToLid.get(nomor));
+                if (!user && lidToPhone.has(nomor)) user = getUser(lidToPhone.get(nomor));
+
                 if (!user) { await reply(`❌ Belum daftar. Ketik *.setupakun* dulu!`); continue; }
-                user = checkVIP(user); user = checkAndResetQuota(user); saveUser(nomor, user);
-                const role = user.role === 'vip' ? '👑 VIP' : '🆓 Free';
-                const quota = user.role === 'vip' ? 'Unlimited ♾️' : `${user.quota.used}/${user.quota.limit}`;
-                const vipUntil = user.vip_until ? new Date(user.vip_until).toLocaleDateString('id-ID') : '-';
+                user = checkVIP(user); user = checkAndResetQuota(user);
+
+                const isVip = isOwner || user.role === 'vip';
+                if (isVip) {
+                    user.role = 'vip';
+                    user.quota.limit = 999999;
+                }
+                saveUser(nomor, user);
+
+                const role = isVip ? '👑 VIP' : '🆓 Free';
+                const quota = isVip ? 'Unlimited ♾️' : `${user.quota.used}/${user.quota.limit}`;
+                const vipUntil = isOwner ? 'Selamanya (Owner 👑)' : (user.vip_until ? new Date(user.vip_until).toLocaleDateString('id-ID') : '-');
                 const resetAt = user.quota.reset_at ? new Date(user.quota.reset_at).toLocaleString('id-ID') : '-';
                 await reply(
                     `📊 *STATUS AKUN*\n\n` +
@@ -591,8 +633,19 @@ async function startBot() {
             }
 
             if (targetNomor) {
-                addVIP(targetNomor, days);
-                await reply(`👑 *SUKSES UPGRADE VIP!*\n\n📱 Target: \`@${targetNomor}\`\n⏳ Durasi: *${days} Hari*\n📦 Kuota: *Unlimited ♾️*`, 1000);
+                if (lidToPhone.has(targetNomor)) {
+                    targetNomor = lidToPhone.get(targetNomor);
+                }
+                const normTarget = normalizeNomor(targetNomor) || targetNomor;
+
+                addVIP(normTarget, days);
+                // Sinkronkan juga ke targetNomor asli jika formatnya berbeda
+                if (normTarget !== targetNomor) addVIP(targetNomor, days);
+                // Jika target punya alias LID, sinkronkan juga
+                if (phoneToLid.has(normTarget)) addVIP(phoneToLid.get(normTarget), days);
+                if (phoneToLid.has(targetNomor)) addVIP(phoneToLid.get(targetNomor), days);
+
+                await reply(`👑 *SUKSES UPGRADE VIP!*\n\n📱 Target: \`@${normTarget}\`\n⏳ Durasi: *${days} Hari*\n📦 Kuota: *Unlimited ♾️*`, 1000);
                 continue;
             }
 
