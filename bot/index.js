@@ -169,22 +169,12 @@ async function startBot() {
             console.log(`[MSG] Dari: ${nomor} (fromMe: ${isFromMe}) | OwnerList: [${ownerList.join(', ')}] | isOwner: ${isOwner} | Text: "${text}"`);
 
             const quoted = msg.message?.extendedTextMessage?.contextInfo;
-            const reply = async (t, delayMs = 3000) => {
+            const reply = async (t, delayMs = 1000) => {
+                if (delayMs > 0) await sleep(delayMs);
                 try {
-                    if (delayMs > 0) {
-                        try {
-                            await sock.sendPresenceUpdate('composing', jid);
-                            await sleep(delayMs);
-                            await sock.sendPresenceUpdate('paused', jid);
-                        } catch {}
-                    }
-                    return await sock.sendMessage(jid, { text: t }, { quoted: msg });
+                    return await sock.sendMessage(jid, { text: t });
                 } catch (sendErr) {
-                    try {
-                        return await sock.sendMessage(jid, { text: t });
-                    } catch (e2) {
-                        console.error('⚠️ Gagal kirim pesan WA:', e2.message);
-                    }
+                    console.error('⚠️ Gagal kirim pesan WA:', sendErr?.message || sendErr);
                 }
             };
 
