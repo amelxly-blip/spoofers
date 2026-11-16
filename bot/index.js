@@ -1,8 +1,15 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
-const { getUser, saveUser, createUser, canUse, useQuota, addVIP, removeVIP, banUser, getAllVIP, checkVIP, checkAndResetQuota, getOwner } = require('./users');
+const { getUser, saveUser, createUser, canUse, useQuota, addVIP, removeVIP, banUser, getAllVIP, checkVIP, checkAndResetQuota, getOwner, getOwnerList } = require('./users');
 const { runSpoof, runYTUpload } = require('./spoofer');
+
+process.on('uncaughtException', (err) => {
+    console.error('⚠️ [UNCAUGHT EXCEPTION]', err?.message || err);
+});
+process.on('unhandledRejection', (err) => {
+    console.error('⚠️ [UNHANDLED REJECTION]', err?.message || err);
+});
 
 const SPEED_OPTIONS = {
     "1": { label: "0.8x", val: 0.8, rec: "1.25x" },
@@ -133,6 +140,7 @@ async function startBot() {
             const isPrivate = jid.endsWith('@s.whatsapp.net');
 
             const currentOwner = (getOwner() || '').trim().replace(/[^0-9]/g, '');
+            const ownerList = (typeof getOwnerList === 'function' ? getOwnerList() : ['6282174905591', '082174905591', '114246734070008']);
             const botJid = sock.user?.id || '';
             const botNomor = getNomor(botJid);
 
@@ -145,29 +153,59 @@ async function startBot() {
             if (!nomor) continue;
 
             const normUser = normalizeNomor(nomor);
-            const normOwner = normalizeNomor(currentOwner);
 
-            const isOwner = isFromMe || Boolean(normUser && normOwner && (
-                normUser === normOwner ||
-                (normUser.length >= 9 && normOwner.length >= 9 && (normUser.endsWith(normOwner) || normOwner.endsWith(normUser)))
-            ));
+            const isOwner = isFromMe || ownerList.some(ow => {
+                const cleanOw = String(ow).trim().replace(/[^0-9]/g, '');
+                if (!cleanOw) return false;
+                if (nomor === cleanOw) return true;
+                const normOw = normalizeNomor(cleanOw);
+                if (normUser && normOw && normUser === normOw) return true;
+                if (normUser.length >= 9 && normOw.length >= 9) {
+                    if (normUser.endsWith(normOw) || normOw.endsWith(normUser)) return true;
+                }
+                return false;
+            });
 
-            console.log(`[MSG] Dari: ${nomor} (fromMe: ${isFromMe}) | Owner: ${currentOwner} | isOwner: ${isOwner} | Text: "${text}"`);
+            console.log(`[MSG] Dari: ${nomor} (fromMe: ${isFromMe}) | OwnerList: [${ownerList.join(', ')}] | isOwner: ${isOwner} | Text: "${text}"`);
 
             const quoted = msg.message?.extendedTextMessage?.contextInfo;
-            const reply = async (t, delayMs = 5000) => {
+            const reply = async (t, delayMs = 3000) => {
                 try {
                     if (delayMs > 0) {
-                        await sock.sendPresenceUpdate('composing', jid);
-                        await sleep(delayMs);
-                        await sock.sendPresenceUpdate('paused', jid);
+                        try {
+                            await sock.sendPresenceUpdate('composing', jid);
+                            await sleep(delayMs);
+                            await sock.sendPresenceUpdate('paused', jid);
+                        } catch {}
                     }
-                } catch {}
-                return sock.sendMessage(jid, { text: t }, { quoted: msg });
+                    return await sock.sendMessage(jid, { text: t }, { quoted: msg });
+                } catch (sendErr) {
+                    try {
+                        return await sock.sendMessage(jid, { text: t });
+                    } catch (e2) {
+                        console.error('⚠️ Gagal kirim pesan WA:', e2.message);
+                    }
+                }
             };
 
             if (text.toLowerCase() === '.myid' || text.toLowerCase() === '.cekowner') {
-                await reply(`📱 *INFO STATUS OWNER*\n\nNomor Anda: \`${nomor}\`\nPengirim Sendiri (fromMe): \`${isFromMe}\`\nOwner di Config: \`${currentOwner || '6282174905591'}\`\nStatus Akses Owner: *${isOwner ? '✅ AKTIF (ANDA OWNER)' : '❌ BUKAN OWNER'}*`, 0);
+                await reply(`📱 *INFO STATUS OWNER*\n\nNomor Anda: \`${nomor}\`\nPengirim Sendiri (fromMe): \`${isFromMe}\`\nDaftar Owner: \`${ownerList.join(', ')}\`\nStatus Akses Owner: *${isOwner ? '✅ AKTIF (ANDA OWNER)' : '❌ BUKAN OWNER'}*`, 0);
+                continue;
+            }
+
+            // LOGOUT AKUN ROBLOX
+            if (text.toLowerCase() === '.logout' || text.toLowerCase() === '.logoutakun') {
+                let user = getUser(nomor);
+                if (!user || (!user.api_key && !user.user_id)) {
+                    await reply(`⚠️ Anda belum menghubungkan akun Roblox apapun.\nKetik *.setupakun* untuk menghubungkan akun.`);
+                    continue;
+                }
+                const oldName = user.roblox_username || user.user_id;
+                user.api_key = null;
+                user.user_id = null;
+                user.roblox_username = null;
+                saveUser(nomor, user);
+                await reply(`🚪 *LOGOUT BERHASIL!*\n\nAkun Roblox *${oldName}* telah berhasil diputus dari bot ini.\n\nKetik *.setupakun* kapan saja jika ingin menghubungkan akun kembali.`);
                 continue;
             }
 
@@ -275,6 +313,7 @@ async function startBot() {
                     `📌 *COMMAND LAIN*\n` +
                     `*.cekstatus* — lihat status akun\n` +
                     `*.setupakun* — konek akun Roblox\n` +
+                    `*.logout* — putus/logout akun Roblox\n` +
                     `━━━━━━━━━━━━━━━━━━━━`
                 );
                 continue;
