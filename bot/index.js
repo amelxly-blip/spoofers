@@ -76,12 +76,25 @@ function speedMenu(title, showSkipNote = true) {
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('./auth');
     const { version } = await fetchLatestBaileysVersion();
+    const groupCache = new Map();
     const sock = makeWASocket({
         version,
         auth: state,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         browser: ['SpooferBot', 'Chrome', '1.0.0'],
+        cachedGroupMetadata: async (jid) => groupCache.get(jid),
+    });
+
+    sock.ev.on('groups.update', async (groups) => {
+        for (const g of groups) {
+            if (g?.id) {
+                try {
+                    const meta = await sock.groupMetadata(g.id);
+                    if (meta) groupCache.set(g.id, meta);
+                } catch {}
+            }
+        }
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -124,11 +137,18 @@ async function startBot() {
         for (const msg of messages) {
             if (!msg.message) continue;
 
+            // Ekstrak pesan murni (support Pesan Sementara / Ephemeral Messages di Grup WA)
+            const inner = msg.message?.ephemeralMessage?.message ||
+                          msg.message?.viewOnceMessage?.message ||
+                          msg.message?.viewOnceMessageV2?.message ||
+                          msg.message?.documentWithCaptionMessage?.message ||
+                          msg.message;
+
             const text = (
-                msg.message?.conversation ||
-                msg.message?.extendedTextMessage?.text ||
-                msg.message?.imageMessage?.caption ||
-                msg.message?.videoMessage?.caption || ''
+                inner?.conversation ||
+                inner?.extendedTextMessage?.text ||
+                inner?.imageMessage?.caption ||
+                inner?.videoMessage?.caption || ''
             ).trim();
 
             const isFromMe = Boolean(msg.key.fromMe);
@@ -168,7 +188,7 @@ async function startBot() {
 
             console.log(`[MSG] Dari: ${nomor} (fromMe: ${isFromMe}) | OwnerList: [${ownerList.join(', ')}] | isOwner: ${isOwner} | Text: "${text}"`);
 
-            const quoted = msg.message?.extendedTextMessage?.contextInfo;
+            const quoted = inner?.extendedTextMessage?.contextInfo;
             const reply = async (t, delayMs = 1000) => {
                 if (delayMs > 0) await sleep(delayMs);
                 try {
