@@ -1,1 +1,11 @@
-
+{
+  "name": "spoofer-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "pino": "^9.0.0",
+    "node-fetch": "^2.7.0",
+    "archiver": "^7.0.1"
+  }
+}
