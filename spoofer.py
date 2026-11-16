@@ -20,7 +20,6 @@ os.makedirs(DL_DIR, exist_ok=True)
 
 MAX_RETRY = 3
 CHUNK = 30
-KIND_EXT = {'Audio': {'mp3', 'ogg', 'wav'}, 'Decal': {'png', 'jpg', 'jpeg', 'gif', 'webp'}, 'Model': {'rbxm'}, 'Animation': {'rbxm'}}
 ASSET_TYPE_IDS = {1: 'Image', 3: 'Audio', 4: 'Mesh', 9: 'Place', 10: 'Model', 13: 'Decal', 24: 'Animation', 38: 'Plugin', 40: 'MeshPart', 62: 'Video'}
 
 SPEED_OPTIONS = {
@@ -145,13 +144,11 @@ def make_session(): return aiohttp.ClientSession(connector=_connector(), connect
 def make_headers(cookie):
     h = {"User-Agent": "Roblox/WinInet", "Accept": "application/json"}
     if cookie:
-        c = cookie.strip()
-        h["Cookie"] = f".ROBLOSECURITY={c}"
+        h["Cookie"] = f".ROBLOSECURITY={cookie.strip()}"
     return h
 
 async def get_asset_details(session, aid, headers):
     name, creator_name, creator_id, asset_type_name = None, None, None, None
-
     try:
         async with session.get(f'https://economy.roblox.com/v1/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
             if r.status == 200:
@@ -161,10 +158,8 @@ async def get_asset_details(session, aid, headers):
                 creator = d.get('Creator', {})
                 creator_id = creator.get('CreatorTargetId')
                 creator_name = creator.get('Name')
-            elif r.status == 429:
-                await asyncio.sleep(3)
+            elif r.status == 429: await asyncio.sleep(3)
     except: pass
-
     if not name:
         try:
             async with session.get(f'https://develop.roblox.com/v1/assets?assetIds={aid}', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
@@ -172,10 +167,8 @@ async def get_asset_details(session, aid, headers):
                     d = await r.json(content_type=None)
                     if d.get('data') and len(d['data']) > 0:
                         name = d['data'][0].get('Name')
-                        if not asset_type_name:
-                            asset_type_name = ASSET_TYPE_IDS.get(d['data'][0].get('AssetTypeId'))
+                        if not asset_type_name: asset_type_name = ASSET_TYPE_IDS.get(d['data'][0].get('AssetTypeId'))
         except: pass
-
     if not name:
         try:
             async with session.get(f'https://apis.roblox.com/toolbox-service/v1/items/details?assetIds={aid}', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
@@ -186,13 +179,9 @@ async def get_asset_details(session, aid, headers):
                         asset = items[0].get('asset', {})
                         name = asset.get('name')
                         creator_info = items[0].get('creator', {})
-                        if not creator_name:
-                            creator_name = creator_info.get('name')
-                            creator_id = creator_info.get('id')
-                        if not asset_type_name:
-                            asset_type_name = ASSET_TYPE_IDS.get(asset.get('typeId'))
+                        if not creator_name: creator_name = creator_info.get('name'); creator_id = creator_info.get('id')
+                        if not asset_type_name: asset_type_name = ASSET_TYPE_IDS.get(asset.get('typeId'))
         except: pass
-
     if not name:
         try:
             async with session.post('https://catalog.roblox.com/v1/catalog/items/details',
@@ -201,18 +190,14 @@ async def get_asset_details(session, aid, headers):
                 timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
                     d = await r.json(content_type=None)
-                    if d.get('data'):
-                        name = d['data'][0].get('name')
-                        if not asset_type_name:
-                            asset_type_name = d['data'][0].get('assetType')
+                    if d.get('data'): name = d['data'][0].get('name')
+                    if not asset_type_name: asset_type_name = d['data'][0].get('assetType') if d.get('data') else None
         except: pass
-
     return name, creator_name, creator_id, asset_type_name
 
 async def download_asset(session, aid, save_dir, cookie):
     headers = make_headers(cookie)
     places_to_try = list(_PLACE_CACHE)
-
     try:
         url = f"https://assetdelivery.roblox.com/v2/assetId/{aid}/version/1"
         async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
@@ -228,8 +213,7 @@ async def download_asset(session, aid, save_dir, cookie):
                                 path = os.path.join(save_dir, f"asset_{aid}.rbxm")
                                 with open(path, "wb") as f: f.write(content)
                                 return {"success": True, "file_path": path}
-            elif r.status == 429:
-                await asyncio.sleep(3)
+            elif r.status == 429: await asyncio.sleep(3)
     except: pass
 
     c_type, c_id = None, None
@@ -268,21 +252,17 @@ async def download_asset(session, aid, save_dir, cookie):
                         with open(path, "wb") as f: f.write(content)
                         await _add_place_cache(pid)
                         return {"success": True, "file_path": path}
-                elif r.status == 429:
-                    await asyncio.sleep(3)
+                elif r.status == 429: await asyncio.sleep(3)
         except: pass
     return {"success": False, "error": "Bypass Gagal (Private/Rate Limit)"}
 
 async def upload_to_open_cloud(s, path, key, target_id, asset_name, info_type):
     url = "https://apis.roblox.com/assets/v1/assets"
     fname = os.path.basename(path)
-
-    # Tentukan tipe upload yang bener
     upload_type = info_type or "Model"
 
-    # Tentukan content-type berdasarkan tipe asset
     if upload_type == "Animation":
-        ctype = "application/xml"
+        ctype = "model/x-rbxm"
     elif fname.endswith('.mp3') or fname.endswith('.ogg') or fname.endswith('.wav'):
         ctype = "audio/mpeg"
         upload_type = "Audio"
@@ -294,7 +274,7 @@ async def upload_to_open_cloud(s, path, key, target_id, asset_name, info_type):
     req_data = {
         "assetType": upload_type,
         "displayName": asset_name[:50],
-        "description": f"Uploaded via Spoofer | Original ID: {path.split('_')[-1].split('.')[0]}",
+        "description": "Spoofed",
         "creationContext": {"creator": {"userId": str(target_id)}}
     }
 
@@ -309,13 +289,10 @@ async def upload_to_open_cloud(s, path, key, target_id, asset_name, info_type):
                         return {"success": True, "operation_id": (await r.json(content_type=None)).get("operationId")}
                     body = await r.text()
                     if r.status in (429, 500, 503) and attempt < MAX_RETRY:
-                        await asyncio.sleep(2 * attempt)
-                        continue
+                        await asyncio.sleep(2 * attempt); continue
                     return {"success": False, "error": f"HTTP {r.status}: {body[:200]}"}
         except Exception as e:
-            if attempt < MAX_RETRY:
-                await asyncio.sleep(2 * attempt)
-                continue
+            if attempt < MAX_RETRY: await asyncio.sleep(2 * attempt); continue
             return {"success": False, "error": str(e)}
     return {"success": False, "error": "Max retry habis"}
 
@@ -334,14 +311,11 @@ async def op_check(s, op_id, key):
 async def _process_one(s, aid, save_dir, key, cfg, asset_type, total, idx, speed_val=None):
     row = {'id': aid, 'ok': False}
     headers = make_headers(cfg.get('cookie'))
-
     name, creator_name, creator_id, itype = await get_asset_details(s, aid, headers)
-
     display_name = name if name else f"Spoofed_Asset_{aid}"
     row['name'] = display_name
     row['creator'] = f"{creator_name} {creator_id}" if creator_name else "Unknown"
     row['type'] = itype
-
     final_type = asset_type if asset_type != 'auto' else (itype or 'Model')
     asset_name = str(display_name)[:50]
 
@@ -360,28 +334,22 @@ async def _process_one(s, aid, save_dir, key, cfg, asset_type, total, idx, speed
 
     path = res['file_path']
 
-    # Auto detect tipe dari isi file
     if not final_type or final_type == 'auto':
-        ext = path.rsplit('.', 1)[-1].lower() if '.' in path else ''
-        if ext == 'rbxm':
-            try:
-                with open(path, 'rb') as fh:
-                    content = fh.read(262144)
-                    if b'KeyframeSequence' in content or b'CurveAnimation' in content:
-                        final_type = 'Animation'
-                    else:
-                        final_type = 'Model'
-            except:
-                final_type = 'Model'
-        else:
-            final_type = 'Audio'
+        try:
+            with open(path, 'rb') as fh:
+                content = fh.read(262144)
+                if b'KeyframeSequence' in content or b'CurveAnimation' in content:
+                    final_type = 'Animation'
+                else:
+                    final_type = 'Model'
+        except:
+            final_type = 'Model'
 
     if final_type == 'Audio' and speed_val:
         console.print(f"  [dim]├─[/dim] Process    : [cyan]Mengubah speed audio ke {speed_val}x...[/cyan]")
         out_path = os.path.join(save_dir, f"speed_{aid}.mp3")
         filters, v = [], speed_val
-        while v > 2.0:
-            filters.append("atempo=2.0"); v /= 2.0
+        while v > 2.0: filters.append("atempo=2.0"); v /= 2.0
         filters.append(f"atempo={v:.3f}")
         try:
             subprocess.run(["ffmpeg","-y","-i",path,"-filter:a",",".join(filters),"-q:a","0",out_path],
@@ -393,7 +361,6 @@ async def _process_one(s, aid, save_dir, key, cfg, asset_type, total, idx, speed
 
     up = await upload_to_open_cloud(s, path, key, cfg['target_id'], asset_name, final_type)
     if not up['success']:
-        row['ok'] = False
         row['error'] = up['error']
         console.print(f"  [dim]└─[/dim] Status     : [red][GAGAL] {up['error']}[/red]")
     else:
@@ -401,17 +368,13 @@ async def _process_one(s, aid, save_dir, key, cfg, asset_type, total, idx, speed
         if op_id:
             st = await op_check(s, op_id, key)
             if st['state'] == 'done':
-                row['ok'] = True
-                row['new_id'] = st['asset_id']
+                row['ok'] = True; row['new_id'] = st['asset_id']
                 console.print(f"  [dim]└─[/dim] Status     : [green][BERHASIL] {asset_name} → ID: {st['asset_id']}[/green]")
             elif st['state'] == 'fail':
-                row['ok'] = False
                 row['error'] = st['error']
                 console.print(f"  [dim]└─[/dim] Status     : [red][GAGAL] {st['error']}[/red]")
             else:
-                row['ok'] = True
-                row['new_id'] = 'pending'
-                row['op'] = str(op_id)
+                row['ok'] = True; row['new_id'] = 'pending'; row['op'] = str(op_id)
                 console.print(f"  [dim]└─[/dim] Status     : [yellow][PENDING] {asset_name}[/yellow]")
         else:
             row['ok'] = True
@@ -495,15 +458,13 @@ def spoof_engine_ui(cfg):
     tipe = Prompt.ask("[bold white]» Pilih (1/2/3/4)[/bold white]", choices=["1","2","3","4"], default="4")
     chosen_type = {"1": "Audio", "2": "Animation", "3": "Decal", "4": "auto"}[tipe]
 
-    speed_val = None
-    speed_label = "Normal"
+    speed_val = None; speed_label = "Normal"
     if chosen_type == "Audio":
         speed_label, speed_val, rec_playback = pick_speed(cfg)
         console.print(f"[green]✔ Speed yang dipilih: {speed_label} (Playback: {rec_playback}x)[/green]")
 
     console.print("\n[bold cyan][ Metode Input ][/bold cyan]\n 1. Manual (Koma)\n 2. File .txt")
     metode = Prompt.ask("[bold white]» Pilih (1/2)[/bold white]", choices=["1","2"], default="1")
-
     ids_input = Prompt.ask("[bold white]» Masukkan ID (pisah koma)[/bold white]") if metode == "1" else ""
     if metode == "2":
         path_txt = Prompt.ask("[bold white]» Path file .txt[/bold white]")
@@ -513,12 +474,10 @@ def spoof_engine_ui(cfg):
             console.print(f"[red]✘ Gagal: {e}[/red]"); Prompt.ask("Enter"); return
 
     ids = parse_ids(ids_input)
-    if not ids:
-        console.print("[red]✘ ID kosong.[/red]"); Prompt.ask("Enter"); return
+    if not ids: console.print("[red]✘ ID kosong.[/red]"); Prompt.ask("Enter"); return
 
     workers = pick_workers()
     console.print(f"\n[green][Info] Target: {chosen_type.upper()} | Total: {len(ids)} | Workers: {workers}[/green]\n")
-
     cfg["target_id"] = cfg["user_id"]
     results = asyncio.run(run_batch(cfg["user_id"], cfg, ids, asset_type=chosen_type, workers=workers, speed_val=speed_val))
 
@@ -531,7 +490,6 @@ def spoof_engine_ui(cfg):
             h = load_json(HISTORY, [])
             h.append({"time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "url": f"Spoof ID: {r['id']}", "status": "OK", "detail": str(r['new_id']), "name": r.get('name', '-'), "speed": speed_label})
             save_json(HISTORY, h)
-
     Prompt.ask("\nEnter buat balik ke menu")
 
 def main():
@@ -540,7 +498,6 @@ def main():
         banner(cfg)
         console.print("[bold yellow]MENU UTAMA[/bold yellow]\n1. Upload YT\n2. History\n3. Spoof .rbxmx Lokal\n4. Setup Akun Uploader\n5. Spoofer Engine (v2)\n6. Setup Cookie Bot\n7. Keluar")
         c = Prompt.ask("Pilih", choices=["1","2","3","4","5","6","7"], default="1")
-
         if c == "1": console.print("[yellow]Fitur Upload YT dipisah sementara.[/yellow]"); time.sleep(1)
         elif c == "2":
             banner(cfg); h = load_json(HISTORY, [])
