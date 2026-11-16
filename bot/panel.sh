@@ -25,12 +25,18 @@ load_config() {
     if [ -f "$CONFIG_FILE" ]; then
         source "$CONFIG_FILE"
     fi
+    # Auto-detect nomor bot dari session auth jika ada
+    if [ -f "$BOT_DIR/auth/creds.json" ]; then
+        DETECTED=$(grep -o '"id":"[0-9]*' "$BOT_DIR/auth/creds.json" | head -1 | cut -d'"' -f4)
+        if [ -n "$DETECTED" ]; then
+            BOT_NOMOR="$DETECTED (Auto QR)"
+        fi
+    fi
 }
 
 save_config() {
     cat > "$CONFIG_FILE" <<EOF
 BOT_COOKIE="$BOT_COOKIE"
-BOT_NOMOR="$BOT_NOMOR"
 BOT_OWNER="$BOT_OWNER"
 EOF
 }
@@ -62,7 +68,7 @@ header() {
     else
         echo -e "  Status Bot : ${RED}● STOPPED${NC}"
     fi
-    NOMOR_DISPLAY="${BOT_NOMOR:-belum diset}"
+    NOMOR_DISPLAY="${BOT_NOMOR:-belum terhubung (scan QR)}"
     OWNER_DISPLAY="${BOT_OWNER:-belum diset}"
     COOKIE_DISPLAY="${BOT_COOKIE:+sudah diset}"
     COOKIE_DISPLAY="${COOKIE_DISPLAY:-belum diset}"
@@ -77,31 +83,29 @@ menu_utama() {
     header
     echo -e "${WHITE}  MENU UTAMA${NC}"
     echo ""
-    echo -e "  ${CYAN}[1]${NC} Setup Nomor Bot WA"
-    echo -e "  ${CYAN}[2]${NC} Setup Nomor Owner / Admin"
-    echo -e "  ${CYAN}[3]${NC} Setup Cookie Roblox"
-    echo -e "  ${CYAN}[4]${NC} Lihat Config Tersimpan"
-    echo -e "  ${CYAN}[5]${NC} Jalankan Bot"
-    echo -e "  ${CYAN}[6]${NC} Hentikan Bot"
-    echo -e "  ${CYAN}[7]${NC} Restart Bot"
-    echo -e "  ${CYAN}[8]${NC} Lihat Log Bot"
-    echo -e "  ${CYAN}[9]${NC} Install / Update Dependencies"
-    echo -e "  ${CYAN}[10]${NC} Scan QR (jika bot sudah jalan)"
+    echo -e "  ${CYAN}[1]${NC} Setup Nomor Owner / Admin"
+    echo -e "  ${CYAN}[2]${NC} Setup Cookie Roblox"
+    echo -e "  ${CYAN}[3]${NC} Lihat Config Tersimpan"
+    echo -e "  ${CYAN}[4]${NC} Jalankan Bot"
+    echo -e "  ${CYAN}[5]${NC} Hentikan Bot"
+    echo -e "  ${CYAN}[6]${NC} Restart Bot"
+    echo -e "  ${CYAN}[7]${NC} Lihat Log Bot"
+    echo -e "  ${CYAN}[8]${NC} Install / Update Dependencies"
+    echo -e "  ${CYAN}[9]${NC} Scan QR Code (Login WA)"
     echo -e "  ${RED}[0]${NC} Keluar"
     echo ""
     echo -ne "  ${WHITE}Pilih menu: ${NC}"
     read -r CHOICE
     case $CHOICE in
-        1) setup_nomor ;;
-        2) setup_owner ;;
-        3) setup_cookie ;;
-        4) lihat_config ;;
-        5) jalankan_bot ;;
-        6) hentikan_bot ;;
-        7) restart_bot ;;
-        8) lihat_log ;;
-        9) install_deps ;;
-        10) scan_qr ;;
+        1) setup_owner ;;
+        2) setup_cookie ;;
+        3) lihat_config ;;
+        4) jalankan_bot ;;
+        5) hentikan_bot ;;
+        6) restart_bot ;;
+        7) lihat_log ;;
+        8) install_deps ;;
+        9) scan_qr ;;
         0) echo -e "\n${GREEN}  Sampai jumpa!${NC}\n"; exit 0 ;;
         *) echo -e "\n${RED}  Pilihan tidak valid.${NC}"; sleep 1; menu_utama ;;
     esac
@@ -238,14 +242,6 @@ jalankan_bot() {
         return
     fi
     load_config
-    if [ -z "$BOT_NOMOR" ]; then
-        echo -e "  ${RED}❌ Setup nomor bot dulu! (Menu 1)${NC}"
-        echo ""
-        echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
-        read -r
-        menu_utama
-        return
-    fi
     echo -e "  ${CYAN}Menjalankan bot di background...${NC}"
     mkdir -p "$BOT_DIR"
     cd "$BOT_DIR" || exit

@@ -1,7 +1,7 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
-const { getUser, saveUser, createUser, canUse, useQuota, addVIP, removeVIP, banUser, getAllVIP, checkVIP, checkAndResetQuota, OWNER } = require('./users');
+const { getUser, saveUser, createUser, canUse, useQuota, addVIP, removeVIP, banUser, getAllVIP, checkVIP, checkAndResetQuota, getOwner } = require('./users');
 const { runSpoof, runYTUpload } = require('./spoofer');
 
 const SPEED_OPTIONS = {
@@ -41,7 +41,10 @@ function parseIds(text) {
     return [...new Set(out)];
 }
 
-function getNomor(jid) { return jid.split('@')[0].replace(/[^0-9]/g, ''); }
+function getNomor(jid) {
+    if (!jid) return '';
+    return jid.split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
+}
 
 function speedMenu(title, showSkipNote = true) {
     let menu = `🎵 *${title}*\n\n`;
@@ -83,7 +86,21 @@ async function startBot() {
                 console.log('Logged out. Hapus folder auth dan scan QR ulang.');
             }
         } else if (connection === 'open') {
-            console.log('✅ SpooferBot terhubung!');
+            const botJid = sock.user?.id || '';
+            const botNomor = getNomor(botJid);
+            console.log(`✅ SpooferBot terhubung! Nomor Bot: ${botNomor || 'Terdeteksi'}`);
+            try {
+                const cfgFile = path.join(__dirname, '.bot_config');
+                let cur = fs.existsSync(cfgFile) ? fs.readFileSync(cfgFile, 'utf8') : '';
+                if (botNomor) {
+                    if (cur.includes('BOT_NOMOR=')) {
+                        cur = cur.replace(/BOT_NOMOR="?[^"\n\r]*"?/, `BOT_NOMOR="${botNomor}"`);
+                    } else {
+                        cur += `\nBOT_NOMOR="${botNomor}"\n`;
+                    }
+                    fs.writeFileSync(cfgFile, cur);
+                }
+            } catch {}
         }
     });
 
@@ -96,7 +113,11 @@ async function startBot() {
             const isPrivate = jid.endsWith('@s.whatsapp.net');
             const nomor = getNomor(isGroup ? (msg.key.participant || jid) : jid);
             if (!nomor) continue;
-            const isOwner = nomor === OWNER;
+            const currentOwner = (getOwner() || '').trim().replace(/[^0-9]/g, '');
+            const isOwner = Boolean(nomor && currentOwner && (
+                nomor === currentOwner ||
+                (nomor.length >= 10 && currentOwner.length >= 10 && (nomor.endsWith(currentOwner) || currentOwner.endsWith(nomor)))
+            ));
             const text = (
                 msg.message?.conversation ||
                 msg.message?.extendedTextMessage?.text ||
@@ -215,7 +236,7 @@ async function startBot() {
                     `📌 *KUOTA*\n` +
                     `🆓 Free: 10x upload/hari\n` +
                     `👑 VIP: Unlimited\n` +
-                    `Beli VIP: wa.me/${OWNER}\n\n` +
+                    `Beli VIP: wa.me/${currentOwner}\n\n` +
                     `📌 *COMMAND LAIN*\n` +
                     `*.cekstatus* — lihat status akun\n` +
                     `*.setupakun* — konek akun Roblox\n` +
@@ -234,7 +255,7 @@ async function startBot() {
                 if (check.reason === 'banned') { await reply(`🚫 Akun kamu dibanned. Hubungi admin.`); continue; }
                 if (check.reason === 'no_account') { await reply(`❌ Akun Roblox belum terhubung!\nKetik *.setupakun* dulu.`); continue; }
                 if (check.reason === 'quota_habis') {
-                    await reply(`⛔ *KUOTA HARIAN ANDA TELAH HABIS*\n\nSegera BUY VIP ke nomor:\n📱 *${OWNER}*\n\nAtau tunggu *24 jam* untuk melakukan spoof kembali.`);
+                    await reply(`⛔ *KUOTA HARIAN ANDA TELAH HABIS*\n\nSegera BUY VIP ke nomor:\n📱 *${currentOwner}*\n\nAtau tunggu *24 jam* untuk melakukan spoof kembali.`);
                     continue;
                 }
 
@@ -256,7 +277,7 @@ async function startBot() {
                 if (check.reason === 'banned') { await reply(`🚫 Akun kamu dibanned. Hubungi admin.`); continue; }
                 if (check.reason === 'no_account') { await reply(`❌ Akun Roblox belum terhubung!\nKetik *.setupakun* dulu.`); continue; }
                 if (check.reason === 'quota_habis') {
-                    await reply(`⛔ *KUOTA HARIAN ANDA TELAH HABIS*\n\nSegera BUY VIP ke nomor:\n📱 *${OWNER}*\n\nAtau tunggu *24 jam* untuk melakukan upload kembali.`);
+                    await reply(`⛔ *KUOTA HARIAN ANDA TELAH HABIS*\n\nSegera BUY VIP ke nomor:\n📱 *${currentOwner}*\n\nAtau tunggu *24 jam* untuk melakukan upload kembali.`);
                     continue;
                 }
 
@@ -411,14 +432,30 @@ async function startBot() {
 
             if (!isOwner) continue;
 
-            const addPremMatch = text.match(/^\.addpremium@(\d+)_(\d+)day$/i);
-            if (addPremMatch) { addVIP(addPremMatch[1], parseInt(addPremMatch[2])); await reply(`✅ @${addPremMatch[1]} upgrade VIP ${addPremMatch[2]} hari!`); continue; }
+            const addPremMatch = text.match(/^\.addpremium\s*@?(\d+)[_\s]+(\d+)\s*(?:day|hari)?$/i);
+            if (addPremMatch) {
+                const targetNomor = addPremMatch[1];
+                const days = parseInt(addPremMatch[2], 10);
+                addVIP(targetNomor, days);
+                await reply(`✅ Berhasil! @${targetNomor} diupgrade ke VIP selama ${days} hari!`, 2000);
+                continue;
+            }
 
-            const delPremMatch = text.match(/^\.delpremium@(\d+)$/i);
-            if (delPremMatch) { removeVIP(delPremMatch[1]); await reply(`✅ VIP @${delPremMatch[1]} dihapus.`); continue; }
+            const delPremMatch = text.match(/^\.delpremium\s*@?(\d+)$/i);
+            if (delPremMatch) {
+                const targetNomor = delPremMatch[1];
+                removeVIP(targetNomor);
+                await reply(`✅ Berhasil! Status VIP @${targetNomor} telah dicabut.`, 2000);
+                continue;
+            }
 
-            const banMatch = text.match(/^\.ban@(\d+)$/i);
-            if (banMatch) { banUser(banMatch[1]); await reply(`🚫 @${banMatch[1]} dibanned.`); continue; }
+            const banMatch = text.match(/^\.ban\s*@?(\d+)$/i);
+            if (banMatch) {
+                const targetNomor = banMatch[1];
+                banUser(targetNomor);
+                await reply(`🚫 Berhasil! User @${targetNomor} telah dibanned.`, 2000);
+                continue;
+            }
 
             if (text.toLowerCase() === '.ceklistvip') {
                 const vips = getAllVIP();

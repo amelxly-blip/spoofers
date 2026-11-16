@@ -132,5 +132,6 @@ module.exports = {
     getAllVIP,
     checkVIP,
     checkAndResetQuota,
+    getOwner,
     get OWNER() { return getOwner(); }
 };
