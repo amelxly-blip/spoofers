@@ -441,8 +441,23 @@ async function startBot() {
                 }
 
                 const user = getUser(nomor);
-                pendingAction.set(nomor, { type: 'spoof', ids, api_key: user.api_key, user_id: user.user_id, jid, msg });
-                await reply(speedMenu('Pilih Speed Bypass Audio'));
+                pendingAction.set(nomor, {
+                    type: 'spoof_type_select',
+                    ids,
+                    api_key: user.api_key,
+                    user_id: user.user_id,
+                    jid,
+                    msg
+                });
+
+                let menu = `📦 *PILIH JENIS TARGET SPOOF*\n\n`;
+                menu += `Total Asset: *${ids.length} ID*\n\n`;
+                menu += `1. Audio 🔊 (Bisa atur speed bypass)\n`;
+                menu += `2. Animasi 🎬 (.rbxm)\n`;
+                menu += `3. Decal 🖼️ (Gambar/Texture)\n`;
+                menu += `4. Otomatis ⚡ (Auto-detect)\n\n`;
+                menu += `_Reply pesan ini dengan angka pilihan (1/2/3/4)_`;
+                await reply(menu);
                 continue;
             }
 
@@ -494,8 +509,78 @@ async function startBot() {
             if (quoted && pendingAction.has(nomor)) {
                 const pending = pendingAction.get(nomor);
                 const choice = text.trim();
-                let speedVal = null;
 
+                // TAHAP 1: PEMILIHAN JENIS ASSET (AUDIO / ANIMASI / DECAL / OTOMATIS)
+                if (pending.type === 'spoof_type_select') {
+                    if (choice === '1') {
+                        // Audio -> Tampilkan menu pilihan speed!
+                        pendingAction.set(nomor, {
+                            type: 'spoof_audio_speed',
+                            ids: pending.ids,
+                            api_key: pending.api_key,
+                            user_id: pending.user_id,
+                            jid,
+                            msg
+                        });
+                        await reply(speedMenu(`Pilih Speed Bypass Audio (${pending.ids.length} ID)`));
+                        continue;
+                    } else if (choice === '2' || choice === '3' || choice === '4') {
+                        // Animasi (2), Decal (3), atau Otomatis (4) -> LANGSUNG PROSES TANPA SPEED
+                        pendingAction.delete(nomor);
+                        const TYPE_MAP = { '2': 'Animation', '3': 'Decal', '4': 'auto' };
+                        const LABEL_MAP = { '2': 'Animasi 🎬', '3': 'Decal 🖼️', '4': 'Asset (Otomatis) ⚡' };
+                        const assetType = TYPE_MAP[choice];
+                        const typeLabel = LABEL_MAP[choice];
+
+                        await reply(`⏳ Memproses spoof *${pending.ids.length} ${typeLabel}*... Mohon tunggu!`, 1000);
+                        try {
+                            const results = await runSpoof(pending.ids, pending.api_key, pending.user_id, null, assetType);
+                            const ok = results.filter(r => r.ok);
+                            const fail = results.filter(r => !r.ok);
+                            useQuota(nomor, ok.length);
+
+                            const TYPE_EMOJI = {
+                                'Audio': '🔊',
+                                'Animation': '🎬',
+                                'Decal': '🖼️',
+                                'Image': '🖼️',
+                                'Model': '📦',
+                                'Mesh': '📦',
+                                'MeshPart': '📦',
+                                'Plugin': '🔧',
+                                'Video': '🎥',
+                            };
+
+                            let res = `✅ *HASIL SPOOF ${typeLabel.toUpperCase()}*\n\n`;
+                            res += `Berhasil: ${ok.length} | Gagal: ${fail.length} | Total: ${results.length}\n\n`;
+                            for (const r of ok) {
+                                const emoji = TYPE_EMOJI[r.type] || '📄';
+                                const typeName = r.type || assetType;
+                                res += `${emoji} *${r.name}*\n`;
+                                res += `   Tipe     : ${typeName}\n`;
+                                res += `   ID Lama  : ${r.id}\n`;
+                                res += `   ID Baru  : \`${r.new_id}\`\n\n`;
+                            }
+                            for (const r of fail) {
+                                res += `❌ ID ${r.id} (${r.name || 'Unknown'}): ${r.error || 'Gagal spoof'}\n\n`;
+                            }
+
+                            const user = getUser(nomor);
+                            const sisa = (isOwner || user.role === 'vip') ? 'Unlimited ♾️' : `${user.quota.limit - user.quota.used}x`;
+                            res += `📦 Sisa kuota: ${sisa}`;
+                            await reply(res.trim(), 2000);
+                        } catch (e) {
+                            await reply(`❌ Error saat spoof: ${e.message}`, 2000);
+                        }
+                        continue;
+                    } else {
+                        await reply(`❌ Pilihan tidak valid. Silakan reply dengan angka:\n1 = Audio 🔊\n2 = Animasi 🎬\n3 = Decal 🖼️\n4 = Otomatis ⚡`);
+                        continue;
+                    }
+                }
+
+                // TAHAP 2: PEMILIHAN SPEED AUDIO / YT UPLOAD
+                let speedVal = null;
                 if (choice === '0') {
                     speedVal = null;
                 } else if (SPEED_OPTIONS[choice]) {
@@ -507,50 +592,39 @@ async function startBot() {
 
                 pendingAction.delete(nomor);
 
-                if (pending.type === 'spoof') {
-                    await reply(`⏳ Memproses ${pending.ids.length} ID... Mohon tunggu!`, 2000);
+                if (pending.type === 'spoof_audio_speed' || pending.type === 'spoof') {
+                    await reply(`⏳ Memproses spoof *${pending.ids.length} Audio 🔊*... Mohon tunggu!`, 1000);
                     try {
-                        // Selalu auto-detect, speed hanya diterapkan ke Audio
-                        const results = await runSpoof(pending.ids, pending.api_key, pending.user_id, speedVal, 'auto');
+                        const results = await runSpoof(pending.ids, pending.api_key, pending.user_id, speedVal, 'Audio');
                         const ok = results.filter(r => r.ok);
                         const fail = results.filter(r => !r.ok);
                         useQuota(nomor, ok.length);
 
-                        const TYPE_EMOJI = {
-                            'Audio': '🔊',
-                            'Animation': '🎬',
-                            'Decal': '🖼️',
-                            'Image': '🖼️',
-                            'Model': '📦',
-                            'Mesh': '📦',
-                            'MeshPart': '📦',
-                            'Plugin': '🔧',
-                            'Video': '🎥',
-                        };
-
-                        let res = `✅ *HASIL SPOOF*\n\n`;
+                        let res = `✅ *HASIL SPOOF AUDIO*\n\n`;
                         res += `Berhasil: ${ok.length} | Gagal: ${fail.length} | Total: ${results.length}\n\n`;
                         for (const r of ok) {
-                            const emoji = TYPE_EMOJI[r.type] || '📄';
-                            const typeLabel = r.type || 'Unknown';
-                            res += `${emoji} *${r.name}*\n`;
-                            res += `   Tipe     : ${typeLabel}\n`;
+                            res += `🔊 *${r.name}*\n`;
+                            res += `   Tipe     : Audio\n`;
                             res += `   ID Lama  : ${r.id}\n`;
                             res += `   ID Baru  : \`${r.new_id}\`\n`;
-                            if (r.type === 'Audio' && speedVal) {
+                            if (speedVal) {
                                 res += `   Speed    : ${SPEED_OPTIONS[choice]?.label}\n`;
                                 res += `   Playback : ${SPEED_OPTIONS[choice]?.rec}\n`;
                             }
                             res += `\n`;
                         }
-                        for (const r of fail) res += `❌ ${r.name || r.id}: ${r.error}\n\n`;
+                        for (const r of fail) {
+                            res += `❌ ID ${r.id} (${r.name || 'Unknown'}): ${r.error || 'Gagal spoof'}\n\n`;
+                        }
 
                         const user = getUser(nomor);
-                        if (user.role === 'free') res += `📦 Sisa kuota: ${user.quota.limit - user.quota.used}x`;
-                        await reply(res.trim(), 4000);
+                        const sisa = (isOwner || user.role === 'vip') ? 'Unlimited ♾️' : `${user.quota.limit - user.quota.used}x`;
+                        res += `📦 Sisa kuota: ${sisa}`;
+                        await reply(res.trim(), 2000);
                     } catch (e) {
-                        await reply(`❌ Error: ${e.message}`, 2000);
+                        await reply(`❌ Error saat spoof: ${e.message}`, 2000);
                     }
+                    continue;
 
                 } else if (pending.type === 'yt') {
                     const totalSongs = pending.urls.length;

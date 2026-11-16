@@ -90,7 +90,33 @@ async def download_asset(session, aid, save_dir):
                                 p = os.path.join(save_dir, f"asset_{aid}.rbxm")
                                 with open(p, "wb") as f: f.write(content)
                                 return {"success": True, "file_path": p}
+            elif r.status == 429: await asyncio.sleep(3)
     except: pass
+
+    c_type, c_id = None, None
+    try:
+        async with session.get(f'https://economy.roblox.com/v1/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+            if r.status == 200:
+                d = await r.json(content_type=None)
+                c_type = d.get('Creator', {}).get('CreatorType')
+                c_id = d.get('Creator', {}).get('CreatorTargetId')
+    except: pass
+
+    if c_type == "User":
+        try:
+            async with session.get(f"https://games.roblox.com/v2/users/{c_id}/games?accessFilter=Public&limit=10&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status == 200:
+                    for g in (await r.json(content_type=None)).get('data', []):
+                        if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
+        except: pass
+    elif c_type == "Group":
+        try:
+            async with session.get(f"https://games.roblox.com/v2/groups/{c_id}/games?accessFilter=Public&limit=10&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status == 200:
+                    for g in (await r.json(content_type=None)).get('data', []):
+                        if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
+        except: pass
+
     for pid in places_to_try:
         spoof_headers = headers.copy()
         spoof_headers["Roblox-Place-Id"] = str(pid)
@@ -102,19 +128,28 @@ async def download_asset(session, aid, save_dir):
                         p = os.path.join(save_dir, f"asset_{aid}.rbxm")
                         with open(p, "wb") as f: f.write(content)
                         return {"success": True, "file_path": p}
+                elif r.status == 429: await asyncio.sleep(3)
         except: pass
-    return {"success": False, "error": "Bypass Gagal"}
+    return {"success": False, "error": "Bypass Gagal (Private/Rate Limit)"}
 
 async def upload_asset(session, file_path, key, target_id, asset_name, asset_type):
     fname = os.path.basename(file_path)
-    if asset_type == "Animation": ctype = "model/x-rbxm"
-    elif fname.endswith('.mp3') or fname.endswith('.ogg'): ctype = "audio/mpeg"
-    elif asset_type == "Decal": ctype = "image/png"
-    else: ctype = "application/octet-stream"
+    upload_type = asset_type or "Model"
+
+    if upload_type == "Animation":
+        ctype = "model/x-rbxm"
+    elif fname.endswith('.mp3') or fname.endswith('.ogg') or fname.endswith('.wav'):
+        ctype = "audio/mpeg"
+        upload_type = "Audio"
+    elif upload_type == "Decal":
+        ctype = "image/png"
+    else:
+        ctype = "application/octet-stream"
+
     req_data = {
-        "assetType": asset_type,
+        "assetType": upload_type,
         "displayName": asset_name[:50],
-        "description": "Spoofed",
+        "description": "Spoofed via SpooferBot",
         "creationContext": {"creator": {"userId": str(target_id)}}
     }
     for attempt in range(1, 4):
@@ -163,6 +198,7 @@ async def main():
     api_key = input_data['api_key']
     user_id = input_data['user_id']
     speed_val = input_data.get('speed_val')
+    chosen_type = input_data.get('asset_type', 'auto')
     save_dir = os.path.join(DL_DIR, str(user_id))
     os.makedirs(save_dir, exist_ok=True)
     results = []
@@ -173,24 +209,27 @@ async def main():
             name, creator_name, creator_id, itype = await get_asset_details(session, aid, headers)
             display_name = name if name else f"Asset_{aid}"
 
-            # Selalu auto-detect tipe dari API; fallback ke binary check
-            final_type = itype if itype else None
+            # Jika user memilih tipe secara eksplisit (Audio, Animation, Decal), gunakan pilihan user
+            if chosen_type and chosen_type != 'auto':
+                final_type = chosen_type
+            else:
+                final_type = itype if itype else None
 
             res = await download_asset(session, aid, save_dir)
             if not res.get('success'):
                 results.append({'id': aid, 'ok': False, 'error': res.get('error'), 'name': display_name}); continue
             file_path = res['file_path']
 
-            # Jika tipe masih belum diketahui, cek isi file (binary fingerprint)
+            # Jika tipe masih belum diketahui, cek isi file (binary fingerprint aman tanpa syntax error)
             if not final_type:
                 try:
                     with open(file_path, 'rb') as fh:
                         content = fh.read(262144)
                         if b'KeyframeSequence' in content or b'CurveAnimation' in content:
                             final_type = 'Animation'
-                        elif content[:3] == b'ID3' or content[:2] == b'\xff\xfb':
+                        elif content.startswith(b'ID3') or content.startswith(bytes([0xff, 0xfb])) or content.startswith(bytes([0xff, 0xf3])):
                             final_type = 'Audio'
-                        elif content[:4] == b'\x89PNG' or content[:2] == b'\xff\xd8':
+                        elif content.startswith(bytes([0x89, 0x50, 0x4e, 0x47])) or content.startswith(bytes([0xff, 0xd8])):
                             final_type = 'Decal'
                         else:
                             final_type = 'Model'
