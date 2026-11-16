@@ -1,6 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-BOT_DIR="$HOME/bot"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/index.js" ]; then
+    BOT_DIR="$SCRIPT_DIR"
+elif [ -d "$HOME/bot" ]; then
+    BOT_DIR="$HOME/bot"
+else
+    BOT_DIR="$SCRIPT_DIR"
+fi
 LOG_FILE="$BOT_DIR/bot.log"
 PID_FILE="$BOT_DIR/bot.pid"
 CONFIG_FILE="$BOT_DIR/.bot_config"
@@ -261,6 +268,7 @@ restart_bot() {
         echo -e "  ${YELLOW}Bot lama dihentikan.${NC}"
         sleep 2
     fi
+    rm -f "$HOME/yt_uploader_runner.py"
     cd "$BOT_DIR" || exit
     nohup node index.js > "$LOG_FILE" 2>&1 &
     BOT_PID=$!
@@ -316,8 +324,14 @@ install_deps() {
     echo -e "  ${CYAN}Install qrcode-terminal...${NC}"
     npm install qrcode-terminal 2>&1 | tail -3
     echo ""
+    echo -e "  ${CYAN}Cek ffmpeg...${NC}"
+    if ! command -v ffmpeg >/dev/null 2>&1; then
+        pkg install ffmpeg -y 2>&1 | tail -3
+    fi
+    echo ""
     echo -e "  ${CYAN}Cek python dependencies...${NC}"
     pip install aiohttp yt-dlp --break-system-packages -q 2>&1 | tail -3
+    rm -f "$HOME/yt_uploader_runner.py" "$HOME/spoofer_bot_runner.py"
     echo ""
     echo -e "  ${GREEN}✅ Selesai!${NC}"
     echo ""
