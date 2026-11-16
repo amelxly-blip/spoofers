@@ -89,31 +89,44 @@ async function startBot() {
             const quoted = msg.message?.extendedTextMessage?.contextInfo;
             const reply = async (t) => sock.sendMessage(jid, { text: t }, { quoted: msg });
 
+            // SETUP AKUN - langsung balas tanpa DM
             if (text.toLowerCase() === '.setupakun') {
-                if (!isPrivate) {
-                    await sock.sendMessage(jid, { text: `📩 Cek DM bot ini ya! Setup akun di chat pribadi.` }, { quoted: msg });
-                    await sock.sendMessage(`${nomor}@s.whatsapp.net`, {
-                        text: `Halo! 👋\n\nUntuk konek akun Roblox kamu, kirim:\n\n*.apikey: [API Key kamu]*\n*.userid: [User ID kamu]*\n\nContoh:\n.apikey: abc123xxx\n.userid: 12345678\n\n🔒 _Pesan ini hanya kamu yang bisa lihat_`
-                    });
-                } else {
-                    await reply(`Kirim:\n*.apikey: [API Key kamu]*\n*.userid: [User ID kamu]*`);
-                }
+                await reply(
+                    `📱 *SETUP AKUN ROBLOX*\n\n` +
+                    `Kirim pesan berikut dalam *satu pesan* ke bot ini:\n\n` +
+                    `\`.apikey[API Key kamu]\n.userid[User ID kamu]\`\n\n` +
+                    `Contoh:\n\`.apikeyabc123xxx\n.userid12345678\`\n\n` +
+                    `📌 *Cara dapat API Key:*\n` +
+                    `1. Buka create.roblox.com\n` +
+                    `2. Credentials → API Keys\n` +
+                    `3. Buat key, centang Assets Read & Write`
+                );
                 continue;
             }
 
-            if (isPrivate && text.toLowerCase().startsWith('.apikey:')) {
-                const apiKey = text.slice(8).trim();
+            // APIKEY + USERID dalam satu pesan, tanpa spasi, tanpa titik dua
+            if (text.toLowerCase().startsWith('.apikey') && text.includes('\n') && text.toLowerCase().includes('.userid')) {
+                const lines = text.trim().split('\n');
+                const apiKeyLine = lines.find(l => l.toLowerCase().startsWith('.apikey'));
+                const userIdLine = lines.find(l => l.toLowerCase().startsWith('.userid'));
+
+                if (!apiKeyLine || !userIdLine) {
+                    await reply(`❌ Format salah!\n\nKirim dalam satu pesan:\n\`.apikeyAPIKEYKAMU\n.useridUSERIDKAMU\``);
+                    continue;
+                }
+
+                const apiKey = apiKeyLine.slice(7).trim();
+                const userId = userIdLine.slice(7).trim();
+
+                if (!apiKey || !userId) {
+                    await reply(`❌ API Key atau User ID kosong!\n\nContoh:\n\`.apikeyabc123\n.userid12345678\``);
+                    continue;
+                }
+
                 let user = getUser(nomor) || createUser(nomor);
                 user.api_key = apiKey;
-                saveUser(nomor, user);
-                await reply(`✅ API Key tersimpan!\n\nSekarang kirim:\n*.userid: [User ID kamu]*`);
-                continue;
-            }
-
-            if (isPrivate && text.toLowerCase().startsWith('.userid:')) {
-                const userId = text.slice(8).trim();
-                let user = getUser(nomor) || createUser(nomor);
                 user.user_id = userId;
+
                 try {
                     const r = await fetch(`https://users.roblox.com/v1/users/${userId}`);
                     const data = await r.json();
@@ -122,11 +135,12 @@ async function startBot() {
                         saveUser(nomor, user);
                         await reply(`🎉 *Selamat!* Akun berhasil terhubung!\n\n👤 Username: *${data.name}*\n🆔 ID: ${userId}\n\nKetik *.help* untuk tutorial lengkap.`);
                     } else {
-                        await reply(`❌ User ID tidak ditemukan!`);
+                        saveUser(nomor, user);
+                        await reply(`⚠️ Akun tersimpan tapi username tidak ditemukan.\nCek User ID kamu ya!\n\nKetik *.help* untuk tutorial.`);
                     }
                 } catch {
                     saveUser(nomor, user);
-                    await reply(`✅ User ID tersimpan!\nKetik *.help* untuk tutorial.`);
+                    await reply(`✅ Akun tersimpan!\nKetik *.help* untuk tutorial.`);
                 }
                 continue;
             }
@@ -157,10 +171,10 @@ async function startBot() {
                     `━━━━━━━━━━━━━━━━━━━━\n` +
                     `📌 *KONEK AKUN ROBLOX*\n` +
                     `1. Ketik *.setupakun*\n` +
-                    `2. Bot DM kamu\n` +
-                    `3. Kirim di DM bot:\n` +
-                    `   .apikey: [API Key]\n` +
-                    `   .userid: [User ID]\n\n` +
+                    `2. Ikuti instruksi bot\n` +
+                    `3. Kirim dalam satu pesan:\n` +
+                    `   .apikey[API Key]\n` +
+                    `   .userid[User ID]\n\n` +
                     `📌 *CARA DAPAT API KEY*\n` +
                     `1. Buka create.roblox.com\n` +
                     `2. Credentials → API Keys\n` +
