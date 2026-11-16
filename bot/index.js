@@ -43,12 +43,15 @@ function parseIds(text) {
 
 function getNomor(jid) { return jid.split('@')[0].replace(/[^0-9]/g, ''); }
 
-function speedMenu(title) {
+function speedMenu(title, showSkipNote = true) {
     let menu = `🎵 *${title}*\n\n`;
     for (const [k, v] of Object.entries(SPEED_OPTIONS)) {
         menu += `${k}. ${v.label} (Playback: ${v.rec})\n`;
     }
-    menu += `\n_Reply pesan ini dengan angka pilihan_\n_Ketik *0* untuk skip (animasi/decal)_`;
+    menu += `\n_Reply pesan ini dengan angka pilihan_`;
+    if (showSkipNote) {
+        menu += `\n_Ketik *0* untuk skip speed (Decal/Animasi otomatis skip)_`;
+    }
     return menu;
 }
 
@@ -305,15 +308,39 @@ async function startBot() {
                 if (pending.type === 'spoof') {
                     await reply(`⏳ Memproses ${pending.ids.length} ID... Mohon tunggu!`, 2000);
                     try {
-                        const assetType = speedVal ? 'Audio' : 'auto';
-                        const results = await runSpoof(pending.ids, pending.api_key, pending.user_id, speedVal, assetType);
+                        // Selalu auto-detect, speed hanya diterapkan ke Audio
+                        const results = await runSpoof(pending.ids, pending.api_key, pending.user_id, speedVal, 'auto');
                         const ok = results.filter(r => r.ok);
                         const fail = results.filter(r => !r.ok);
                         useQuota(nomor, ok.length);
 
+                        const TYPE_EMOJI = {
+                            'Audio': '🔊',
+                            'Animation': '🎬',
+                            'Decal': '🖼️',
+                            'Image': '🖼️',
+                            'Model': '📦',
+                            'Mesh': '📦',
+                            'MeshPart': '📦',
+                            'Plugin': '🔧',
+                            'Video': '🎥',
+                        };
+
                         let res = `✅ *HASIL SPOOF*\n\n`;
                         res += `Berhasil: ${ok.length} | Gagal: ${fail.length} | Total: ${results.length}\n\n`;
-                        for (const r of ok) res += `✅ *${r.name}*\n   ID Lama: ${r.id}\n   ID Baru: \`${r.new_id}\`\n\n`;
+                        for (const r of ok) {
+                            const emoji = TYPE_EMOJI[r.type] || '📄';
+                            const typeLabel = r.type || 'Unknown';
+                            res += `${emoji} *${r.name}*\n`;
+                            res += `   Tipe     : ${typeLabel}\n`;
+                            res += `   ID Lama  : ${r.id}\n`;
+                            res += `   ID Baru  : \`${r.new_id}\`\n`;
+                            if (r.type === 'Audio' && speedVal) {
+                                res += `   Speed    : ${SPEED_OPTIONS[choice]?.label}\n`;
+                                res += `   Playback : ${SPEED_OPTIONS[choice]?.rec}\n`;
+                            }
+                            res += `\n`;
+                        }
                         for (const r of fail) res += `❌ ${r.name || r.id}: ${r.error}\n\n`;
 
                         const user = getUser(nomor);

@@ -163,7 +163,6 @@ async def main():
     api_key = input_data['api_key']
     user_id = input_data['user_id']
     speed_val = input_data.get('speed_val')
-    asset_type = input_data.get('asset_type', 'auto')
     save_dir = os.path.join(DL_DIR, str(user_id))
     os.makedirs(save_dir, exist_ok=True)
     results = []
@@ -173,20 +172,35 @@ async def main():
             headers = make_headers(COOKIE)
             name, creator_name, creator_id, itype = await get_asset_details(session, aid, headers)
             display_name = name if name else f"Asset_{aid}"
-            final_type = asset_type if asset_type != 'auto' else (itype or 'Model')
+
+            # Selalu auto-detect tipe dari API; fallback ke binary check
+            final_type = itype if itype else None
+
             res = await download_asset(session, aid, save_dir)
             if not res.get('success'):
                 results.append({'id': aid, 'ok': False, 'error': res.get('error'), 'name': display_name}); continue
             file_path = res['file_path']
-            if final_type == 'auto' or not final_type:
+
+            # Jika tipe masih belum diketahui, cek isi file (binary fingerprint)
+            if not final_type:
                 try:
                     with open(file_path, 'rb') as fh:
                         content = fh.read(262144)
-                        if b'KeyframeSequence' in content or b'CurveAnimation' in content: final_type = 'Animation'
-                        else: final_type = 'Model'
-                except: final_type = 'Model'
+                        if b'KeyframeSequence' in content or b'CurveAnimation' in content:
+                            final_type = 'Animation'
+                        elif content[:3] == b'ID3' or content[:2] == b'\xff\xfb':
+                            final_type = 'Audio'
+                        elif content[:4] == b'\x89PNG' or content[:2] == b'\xff\xd8':
+                            final_type = 'Decal'
+                        else:
+                            final_type = 'Model'
+                except:
+                    final_type = 'Model'
+
+            # Speed hanya diapply ke Audio
             if final_type == 'Audio' and speed_val:
                 file_path = await process_speed(file_path, speed_val, save_dir, aid)
+
             up = await upload_asset(session, file_path, api_key, user_id, display_name, final_type)
             if not up['success']:
                 results.append({'id': aid, 'ok': False, 'error': up['error'], 'name': display_name}); continue
@@ -200,7 +214,7 @@ async def main():
                     elif st['state'] == 'fail':
                         results.append({'id': aid, 'ok': False, 'error': st['error'], 'name': display_name}); break
                 else:
-                    results.append({'id': aid, 'ok': True, 'new_id': 'pending', 'name': display_name})
+                    results.append({'id': aid, 'ok': True, 'new_id': 'pending', 'name': display_name, 'type': final_type})
             try: os.remove(file_path)
             except: pass
     print(json.dumps(results))
