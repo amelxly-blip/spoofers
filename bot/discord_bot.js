@@ -350,8 +350,8 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
                 desc += '**Progres Terakhir:**\n';
                 for (const r of allResults.slice(-5)) { // tampilkan 5 terakhir
                     if (r.ok && r.new_id) {
-                        const creator = r.creator ? ` creator ${r.creator}` : '';
-                        desc += `• hasil spoof name \`${r.name || 'Asset'}\` id \`${r.new_id}\`${creator}\n`;
+                        const creator = r.creator ? ` | Creator: ${r.creator}` : '';
+                        desc += `• **${r.name || 'Asset'}** | ID: \`${r.new_id}\`${creator}\n`;
                     } else {
                         desc += `• ❌ \`${r.id}\`: ${r.error || 'Gagal'}\n`;
                     }
@@ -399,16 +399,16 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
                 });
             }
 
-            // Bangun hasil final compact: 1 pesan, 1 baris per ID sesuai permintaan user
+            // Bangun hasil final compact: 1 pesan, 1 baris per ID
             let successCount = 0;
             const lines = [];
             for (const item of allResults) {
                 if (item.ok && item.new_id) {
                     successCount++;
-                    const creatorPart = (item.creator && String(item.creator).trim()) ? ` creator ${item.creator}` : '';
-                    lines.push(`hasil spoof name ${item.name || 'Asset'} id ${item.new_id}${creatorPart}`);
+                    const creatorPart = (item.creator && String(item.creator).trim()) ? ` | Creator: ${item.creator}` : '';
+                    lines.push(`${item.name || 'Asset'} | ID: ${item.new_id}${creatorPart}`);
                 } else {
-                    lines.push(`❌ gagal id ${item.id} (${item.name || 'Unknown'}): ${item.error || 'Gagal diproses'}`);
+                    lines.push(`❌ Gagal: ${item.name || 'Asset'} (ID: ${item.id}) - ${item.error || 'Gagal diproses'}`);
                 }
             }
 
@@ -416,7 +416,7 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
             const failCount = allResults.length - okCount;
             const summary = `Berhasil: **${okCount}** | Gagal: **${failCount}** | Total: **${allResults.length}**`;
             const listText = lines.join('\n');
-            const description = summary + '\n' + '─'.repeat(32) + '\n' + listText;
+            const description = summary + '\n' + '─'.repeat(32) + '\n**📋 DAFTAR HASIL SPOOF:**\n' + listText;
 
             const embed = new EmbedBuilder()
                 .setColor('#2ecc71')
@@ -446,10 +446,10 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
             const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - successCount)}/10`;
             embed.setFooter({ text: `Akun: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
 
-            // Kirim listText di content (jika muat <= 1900 karakter) agar user bisa langsung 1-klik copy tanpa cape nyalin satu-satu
+            // Kirim listText langsung di pesan agar tinggal 1-klik copy tanpa kata-kata ribet
             const replyOptions = { embeds: [embed] };
-            if (listText.length <= 1900) {
-                replyOptions.content = listText;
+            if (listText.length <= 1850) {
+                replyOptions.content = `📋 **DAFTAR HASIL SPOOF:**\n` + listText;
             }
 
             await interaction.editReply(replyOptions);

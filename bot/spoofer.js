@@ -389,14 +389,14 @@ async def main():
                             await grant_asset_permissions(session, new_aid, api_key, user_id)
                         try: os.remove(file_path)
                         except: pass
-                        return {'id': aid, 'ok': True, 'new_id': new_aid, 'name': display_name, 'type': final_type, 'creator': f"{creator_name} ({creator_id})" if creator_name else None}
+                        return {'id': aid, 'ok': True, 'new_id': new_aid, 'name': display_name, 'type': final_type, 'creator': creator_name if creator_name else None}
                     elif st['state'] == 'fail':
                         try: os.remove(file_path)
                         except: pass
                         return {'id': aid, 'ok': False, 'error': st['error'], 'name': display_name}
                 try: os.remove(file_path)
                 except: pass
-                return {'id': aid, 'ok': True, 'new_id': 'pending', 'name': display_name, 'type': final_type, 'creator': f"{creator_name} ({creator_id})" if creator_name else None}
+                return {'id': aid, 'ok': True, 'new_id': 'pending', 'name': display_name, 'type': final_type, 'creator': creator_name if creator_name else None}
             try: os.remove(file_path)
             except: pass
             return {'id': aid, 'ok': False, 'error': 'No operation ID returned', 'name': display_name}
