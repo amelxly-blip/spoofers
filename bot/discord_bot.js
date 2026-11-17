@@ -16,9 +16,10 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const fetch = require('node-fetch');
+const fetch = globalThis.fetch || require('node-fetch');
 const users = require('./users');
 const { runSpoof, runYTUpload } = require('./spoofer');
+const { parsePlaceId, ripGame, getTrending } = require('./game_ripper');
 
 const CONFIG_PATH = path.join(require('os').homedir(), '.bot_config');
 let BOT_TOKEN = process.env.DISCORD_TOKEN || '';
@@ -138,7 +139,38 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('hapusakun')
-        .setDescription('Putuskan koneksi akun Roblox uploader kamu dari bot')
+        .setDescription('Putuskan koneksi akun Roblox uploader kamu dari bot'),
+
+    new SlashCommandBuilder()
+        .setName('gamesoundriperaudio')
+        .setDescription('Scan & ambil semua Sound ID musik dari game Roblox (Place ID / Link)')
+        .addStringOption(opt =>
+            opt.setName('game')
+                .setDescription('Link game Roblox atau Place ID (Contoh: https://roblox.com/games/4924922222)')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('gamesoundriperdance')
+        .setDescription('Scan & ambil semua Animation / Dance ID dari game Roblox (Place ID / Link)')
+        .addStringOption(opt =>
+            opt.setName('game')
+                .setDescription('Link game Roblox atau Place ID (Contoh: https://roblox.com/games/4924922222)')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('trending')
+        .setDescription('Daftar audio & dance yang lagi viral di Roblox + 1-klik spoof')
+        .addStringOption(opt =>
+            opt.setName('kategori')
+                .setDescription('Pilih kategori trending yang ingin dilihat')
+                .setRequired(true)
+                .addChoices(
+                    { name: '🎵 Trending Audio (Musik / Phonk / Breakbeat)', value: 'audio' },
+                    { name: '🎬 Trending Dance (Emote / Animasi)', value: 'dance' }
+                )
+        )
 ].map(c => c.toJSON());
 
 // ==========================================
@@ -732,6 +764,81 @@ client.on('interactionCreate', async (interaction) => {
                 return executeSpoofTask(interaction, session, speedVal, 'audio');
             }
         }
+
+        // C. Spoof dari Game Sound/Dance Ripper
+        if (customId.startsWith('btn_rip_spoof:')) {
+            const sessionId = customId.split(':')[1];
+            const session = pendingSessions.get(sessionId);
+            if (!session) {
+                return interaction.reply({ content: '⚠️ Sesi ini telah kedaluwarsa. Silakan ketik ulang perintah.', ephemeral: true });
+            }
+            if (interaction.user.id !== session.discordId) {
+                return interaction.reply({ content: '⛔ Hanya pengguna yang menjalankan perintah ini yang dapat memilih.', ephemeral: true });
+            }
+
+            const check = users.canUse(interaction.user.id);
+            if (!check.ok) {
+                if (check.reason === 'no_account' || check.reason === 'not_registered') {
+                    return interaction.reply({ content: '⚠️ Kamu belum menghubungkan akun Roblox uploader! Ketik `/setup` dulu.', ephemeral: true });
+                }
+                if (check.reason === 'quota_habis') return sendQuotaExceededReply(interaction);
+                if (check.reason === 'banned') return interaction.reply({ content: '🚫 Akun diblokir.', ephemeral: true });
+            }
+
+            session.userObj = check.user;
+            session.isVip = check.role === 'vip';
+
+            if (session.type === 'audio') {
+                const speedUI = buildSpeedUI(sessionId, `Rip dari Game (Total: ${session.ids.length} Audio)`);
+                return interaction.update(speedUI);
+            } else {
+                return executeSpoofTask(interaction, session, '1.0', 'animation');
+            }
+        }
+
+        // D. Salin ID dari Game Ripper
+        if (customId.startsWith('btn_rip_copy:')) {
+            const sessionId = customId.split(':')[1];
+            const session = pendingSessions.get(sessionId);
+            if (!session || !session.ids) {
+                return interaction.reply({ content: '⚠️ Sesi tidak ditemukan.', ephemeral: true });
+            }
+            return interaction.reply({
+                content: `📋 **Daftar ID (${session.type}):**\n\`\`\`\n${session.ids.join(', ')}\n\`\`\``,
+                ephemeral: true
+            });
+        }
+
+        // E. Spoof dari Trending Hub
+        if (customId.startsWith('btn_trending_spoof:')) {
+            const sessionId = customId.split(':')[1];
+            const session = pendingSessions.get(sessionId);
+            if (!session) {
+                return interaction.reply({ content: '⚠️ Sesi ini telah kedaluwarsa. Silakan ketik ulang perintah.', ephemeral: true });
+            }
+            if (interaction.user.id !== session.discordId) {
+                return interaction.reply({ content: '⛔ Hanya pengguna yang menjalankan perintah ini yang dapat memilih.', ephemeral: true });
+            }
+
+            const check = users.canUse(interaction.user.id);
+            if (!check.ok) {
+                if (check.reason === 'no_account' || check.reason === 'not_registered') {
+                    return interaction.reply({ content: '⚠️ Kamu belum menghubungkan akun Roblox uploader! Ketik `/setup` dulu.', ephemeral: true });
+                }
+                if (check.reason === 'quota_habis') return sendQuotaExceededReply(interaction);
+                if (check.reason === 'banned') return interaction.reply({ content: '🚫 Akun diblokir.', ephemeral: true });
+            }
+
+            session.userObj = check.user;
+            session.isVip = check.role === 'vip';
+
+            if (session.type === 'audio') {
+                const speedUI = buildSpeedUI(sessionId, `Trending Roblox (Total: ${session.ids.length} Audio)`);
+                return interaction.update(speedUI);
+            } else {
+                return executeSpoofTask(interaction, session, '1.0', 'animation');
+            }
+        }
         return;
     }
 
@@ -987,6 +1094,177 @@ client.on('interactionCreate', async (interaction) => {
         // Balas secara PUBLIK dengan pilihan speed & pitch bypass
         const speedUI = buildSpeedUI(sessionId, `Link YouTube: \`${urls.join(', ')}\``);
         return interaction.reply(speedUI);
+    }
+
+    // === /gamesoundriperaudio ===
+    if (commandName === 'gamesoundriperaudio') {
+        const rawGame = interaction.options.getString('game');
+        const placeId = parsePlaceId(rawGame);
+        if (!placeId) {
+            return interaction.reply({
+                content: '❌ **Link game atau Place ID tidak valid!** Masukkan link game Roblox atau Place ID yang benar (contoh: `https://roblox.com/games/4924922222` atau `4924922222`).',
+                ephemeral: true
+            });
+        }
+
+        await interaction.deferReply();
+
+        const result = await ripGame(placeId, 'audio');
+        if (!result.success) {
+            return interaction.editReply({ content: `❌ ${result.error}` });
+        }
+
+        const sessionId = 'rip_aud_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        pendingSessions.set(sessionId, {
+            discordId,
+            ids: result.assets.map(a => a.id),
+            type: 'audio',
+            isYT: false
+        });
+
+        let listText = '';
+        for (let i = 0; i < result.assets.length; i++) {
+            const a = result.assets[i];
+            listText += `${i + 1}. **${a.name}** | ID: \`${a.id}\`\n`;
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor('#3498db')
+            .setTitle(`🎵 GAME SOUND RIPPER — ${result.game.name}`)
+            .setDescription(
+                `🎮 **Game:** [${result.game.name}](https://www.roblox.com/games/${placeId})\n` +
+                `👤 **Creator:** \`${result.game.creator}\`\n` +
+                `🆔 **Place ID:** \`${placeId}\`\n` +
+                `━━━━━━━━━━━━━━━━━━━━\n` +
+                `Ditemukan **${result.assets.length} Sound ID** musik di game ini:\n\n` +
+                listText
+            )
+            .setFooter({ text: 'Klik tombol hijau di bawah untuk langsung spoof semua lagu ini ke akun Roblox kamu!' })
+            .setTimestamp();
+
+        if (result.game.iconUrl) embed.setThumbnail(result.game.iconUrl);
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`btn_rip_spoof:${sessionId}`)
+                .setLabel(`⚡ Spoof Semua Sound Game Ini (${result.assets.length})`)
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId(`btn_rip_copy:${sessionId}`)
+                .setLabel('📋 Salin ID')
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        return interaction.editReply({ embeds: [embed], components: [row] });
+    }
+
+    // === /gamesoundriperdance ===
+    if (commandName === 'gamesoundriperdance') {
+        const rawGame = interaction.options.getString('game');
+        const placeId = parsePlaceId(rawGame);
+        if (!placeId) {
+            return interaction.reply({
+                content: '❌ **Link game atau Place ID tidak valid!** Masukkan link game Roblox atau Place ID yang benar.',
+                ephemeral: true
+            });
+        }
+
+        await interaction.deferReply();
+
+        const result = await ripGame(placeId, 'dance');
+        if (!result.success) {
+            return interaction.editReply({ content: `❌ ${result.error}` });
+        }
+
+        const sessionId = 'rip_dnc_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        pendingSessions.set(sessionId, {
+            discordId,
+            ids: result.assets.map(a => a.id),
+            type: 'animation',
+            isYT: false
+        });
+
+        let listText = '';
+        for (let i = 0; i < result.assets.length; i++) {
+            const a = result.assets[i];
+            listText += `${i + 1}. **${a.name}** | ID: \`${a.id}\`\n`;
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor('#9b59b6')
+            .setTitle(`🎬 GAME DANCE RIPPER — ${result.game.name}`)
+            .setDescription(
+                `🎮 **Game:** [${result.game.name}](https://www.roblox.com/games/${placeId})\n` +
+                `👤 **Creator:** \`${result.game.creator}\`\n` +
+                `🆔 **Place ID:** \`${placeId}\`\n` +
+                `━━━━━━━━━━━━━━━━━━━━\n` +
+                `Ditemukan **${result.assets.length} Animation / Dance ID** di game ini:\n\n` +
+                listText
+            )
+            .setFooter({ text: 'Klik tombol di bawah untuk langsung spoof semua dance & aktifkan permissions write!' })
+            .setTimestamp();
+
+        if (result.game.iconUrl) embed.setThumbnail(result.game.iconUrl);
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`btn_rip_spoof:${sessionId}`)
+                .setLabel(`⚡ Spoof Semua Dance Game Ini (${result.assets.length})`)
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId(`btn_rip_copy:${sessionId}`)
+                .setLabel('📋 Salin ID')
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        return interaction.editReply({ embeds: [embed], components: [row] });
+    }
+
+    // === /trending ===
+    if (commandName === 'trending') {
+        const kategori = interaction.options.getString('kategori') || 'audio';
+        const data = getTrending(kategori);
+
+        const sessionId = 'trd_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        pendingSessions.set(sessionId, {
+            discordId,
+            ids: data.assets.map(a => a.id),
+            type: kategori === 'dance' ? 'animation' : 'audio',
+            isYT: false
+        });
+
+        let listText = '';
+        for (let i = 0; i < data.assets.length; i++) {
+            const a = data.assets[i];
+            const creator = a.creator ? ` | Creator: ${a.creator}` : '';
+            listText += `${i + 1}. **${a.name}** | ID: \`${a.id}\`${creator}\n`;
+        }
+
+        const isAudio = kategori === 'audio';
+        const embed = new EmbedBuilder()
+            .setColor(isAudio ? '#e67e22' : '#9b59b6')
+            .setTitle(`🔥 TOP TRENDING ROBLOX ${kategori.toUpperCase()} (VIRAL 2026)`)
+            .setDescription(
+                `Berikut daftar **${data.assets.length} aset ${kategori.toUpperCase()}** yang paling sering dipakai di game top Roblox saat ini:\n\n` +
+                listText + '\n' +
+                `━━━━━━━━━━━━━━━━━━━━\n` +
+                `*Klik tombol hijau di bawah untuk langsung mem-bypass semua ${kategori} ini ke akun Roblox kamu dalam 1 klik!*`
+            )
+            .setFooter({ text: 'Trending Roblox Assets Hub • Auto Updated' })
+            .setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`btn_trending_spoof:${sessionId}`)
+                .setLabel(`⚡ Spoof Semua Trending ${isAudio ? 'Audio' : 'Dance'} Ini`)
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId(`btn_rip_copy:${sessionId}`)
+                .setLabel('📋 Salin Semua ID')
+                .setStyle(ButtonStyle.Secondary)
+        );
+
+        return interaction.reply({ embeds: [embed], components: [row] });
     }
 });
 
