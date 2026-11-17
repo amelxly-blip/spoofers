@@ -644,6 +644,73 @@ async function sendQuotaExceededReply(interaction) {
     });
 }
 
+async function sendVipOnlyReply(interaction) {
+    let ownerUser = null;
+    try {
+        ownerUser = await client.users.fetch(OWNER_DISCORD_ID);
+    } catch (e) {
+        console.error('[Fetch Owner Error]', e);
+    }
+
+    const ownerName = ownerUser ? (ownerUser.globalName || ownerUser.username) : 'Owner';
+    const ownerAvatar = ownerUser ? ownerUser.displayAvatarURL({ dynamic: true, size: 512 }) : null;
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setLabel(`Chat / DM ${ownerName} (Beli Premium / VIP)`)
+            .setStyle(ButtonStyle.Link)
+            .setURL(`https://discord.com/users/${OWNER_DISCORD_ID}`)
+            .setEmoji('💎')
+    );
+
+    const embed = new EmbedBuilder()
+        .setColor('#e74c3c')
+        .setTitle('⛔ FREE USER DILARANG PAKE!')
+        .setDescription(
+            `### ⚠️ FREE USER DILARANG PAKE SEGERA DM AKUN DISCORD INI UNTUK PREMIUM\n\n` +
+            `Fitur **Game Sound/Dance Ripper** dan **Trending Assets Hub** merupakan fitur eksklusif khusus **Member VIP / Premium**.\n` +
+            `Member gratis (Free User) tidak diizinkan menggunakan fitur ini.`
+        )
+        .addFields(
+            {
+                name: '👑 Hubungi Owner Untuk Beli VIP',
+                value: `**Mention:** <@${OWNER_DISCORD_ID}>\n**Username:** \`${ownerName}\`\n**User ID:** \`${OWNER_DISCORD_ID}\``,
+                inline: false
+            },
+            {
+                name: '💎 Keuntungan Jadi Member VIP',
+                value: (
+                    '⚡ **Akses Fitur Game Sound Ripper** (Rip lagu Brookhaven, Da Hood, dll)\n' +
+                    '🎬 **Akses Fitur Game Dance Ripper** (Rip animasi dance in-game)\n' +
+                    '🔥 **Akses Trending Assets Hub** (1-klik spoof lagu & dance viral)\n' +
+                    '♾️ **Unlimited Kuota Harian** (Bypass tanpa batas)\n' +
+                    '🚀 **Prioritas Antrean #1 (Langsung diproses tanpa antre)**'
+                ),
+                inline: false
+            }
+        )
+        .setFooter({
+            text: `Klik tombol di bawah untuk langsung membuka DM ke ${ownerName}`,
+            iconURL: ownerAvatar || undefined
+        })
+        .setTimestamp();
+
+    if (ownerAvatar) {
+        embed.setThumbnail(ownerAvatar);
+        embed.setAuthor({
+            name: `${ownerName} (Owner Spoofer)`,
+            iconURL: ownerAvatar,
+            url: `https://discord.com/users/${OWNER_DISCORD_ID}`
+        });
+    }
+
+    if (interaction.deferred || interaction.replied) {
+        return interaction.editReply({ embeds: [embed], components: [row] });
+    } else {
+        return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    }
+}
+
 // ==========================================
 // CLIENT EVENTS
 // ==========================================
@@ -777,6 +844,9 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             const check = users.canUse(interaction.user.id);
+            if (check.role !== 'vip') {
+                return sendVipOnlyReply(interaction);
+            }
             if (!check.ok) {
                 if (check.reason === 'no_account' || check.reason === 'not_registered') {
                     return interaction.reply({ content: '⚠️ Kamu belum menghubungkan akun Roblox uploader! Ketik `/setup` dulu.', ephemeral: true });
@@ -786,7 +856,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             session.userObj = check.user;
-            session.isVip = check.role === 'vip';
+            session.isVip = true;
 
             if (session.type === 'audio') {
                 const speedUI = buildSpeedUI(sessionId, `Rip dari Game (Total: ${session.ids.length} Audio)`);
@@ -821,6 +891,9 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             const check = users.canUse(interaction.user.id);
+            if (check.role !== 'vip') {
+                return sendVipOnlyReply(interaction);
+            }
             if (!check.ok) {
                 if (check.reason === 'no_account' || check.reason === 'not_registered') {
                     return interaction.reply({ content: '⚠️ Kamu belum menghubungkan akun Roblox uploader! Ketik `/setup` dulu.', ephemeral: true });
@@ -830,7 +903,7 @@ client.on('interactionCreate', async (interaction) => {
             }
 
             session.userObj = check.user;
-            session.isVip = check.role === 'vip';
+            session.isVip = true;
 
             if (session.type === 'audio') {
                 const speedUI = buildSpeedUI(sessionId, `Trending Roblox (Total: ${session.ids.length} Audio)`);
@@ -1098,6 +1171,11 @@ client.on('interactionCreate', async (interaction) => {
 
     // === /gamesoundriperaudio ===
     if (commandName === 'gamesoundriperaudio') {
+        const check = users.canUse(discordId);
+        if (check.role !== 'vip') {
+            return sendVipOnlyReply(interaction);
+        }
+
         const rawGame = interaction.options.getString('game');
         const placeId = parsePlaceId(rawGame);
         if (!placeId) {
@@ -1160,6 +1238,11 @@ client.on('interactionCreate', async (interaction) => {
 
     // === /gamesoundriperdance ===
     if (commandName === 'gamesoundriperdance') {
+        const check = users.canUse(discordId);
+        if (check.role !== 'vip') {
+            return sendVipOnlyReply(interaction);
+        }
+
         const rawGame = interaction.options.getString('game');
         const placeId = parsePlaceId(rawGame);
         if (!placeId) {
@@ -1222,6 +1305,11 @@ client.on('interactionCreate', async (interaction) => {
 
     // === /trending ===
     if (commandName === 'trending') {
+        const check = users.canUse(discordId);
+        if (check.role !== 'vip') {
+            return sendVipOnlyReply(interaction);
+        }
+
         const kategori = interaction.options.getString('kategori') || 'audio';
         const data = getTrending(kategori);
 
