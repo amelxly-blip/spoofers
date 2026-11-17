@@ -408,7 +408,7 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
             // Proses per batch paralel agar bot bisa update progress live
             for (let i = 0; i < total; i += BATCH) {
                 const chunk = ids.slice(i, i + BATCH);
-                const chunkResults = await runSpoof(chunk, userObj.api_key, userObj.user_id, speedVal, assetType, WORKERS);
+                const chunkResults = await runSpoof(chunk, userObj.api_key, userObj.user_id, speedVal, assetType, WORKERS, session.sourcePlaceId);
                 allResults.push(...chunkResults);
                 doneSoFar += chunk.length;
 
@@ -1197,6 +1197,7 @@ client.on('interactionCreate', async (interaction) => {
             discordId,
             ids: result.assets.map(a => a.id),
             type: 'audio',
+            sourcePlaceId: placeId,
             isYT: false
         });
 
@@ -1264,6 +1265,7 @@ client.on('interactionCreate', async (interaction) => {
             discordId,
             ids: result.assets.map(a => a.id),
             type: 'animation',
+            sourcePlaceId: placeId,
             isYT: false
         });
 

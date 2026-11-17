@@ -20,6 +20,8 @@ _DEFAULT_SEEDS = [
     119031818630096, 76077593225337, 131528987147518,
     125981614068947, 112742012181598, 6872265039,
     5765186170, 3271915715, 4483381587, 7415484388,
+    4924922222, 2788229376, 13772394625, 2753915549,
+    142823291, 6516141723, 987229334
 ]
 
 def load_place_cache():
@@ -32,6 +34,16 @@ def load_place_cache():
     return cache
 
 PLACE_CACHE = load_place_cache()
+
+def add_place_cache(pid):
+    try:
+        p_int = int(pid)
+        if p_int not in PLACE_CACHE:
+            PLACE_CACHE.append(p_int)
+            tmp = str(PLACE_CACHE_FILE) + ".tmp"
+            with open(tmp, "w") as f: json.dump(PLACE_CACHE, f)
+            os.replace(tmp, str(PLACE_CACHE_FILE))
+    except: pass
 
 cfg_path = Path.home() / ".uploader_config.json"
 COOKIE = ""
@@ -49,7 +61,7 @@ def make_headers(cookie):
 
 async def get_asset_details(session, aid, headers):
     name, creator_name, creator_id, asset_type_name = None, None, None, None
-    # 1. Endpoint Utama: Economy API v2 (Roblox telah mematikan v1 menjadi 404, v2 adalah endpoint terbaik & paling akurat)
+    # 1. Endpoint Utama: Economy API v2
     try:
         async with session.get(f'https://economy.roblox.com/v2/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
             if r.status == 200:
@@ -93,28 +105,48 @@ async def get_asset_details(session, aid, headers):
         except: pass
     return name, creator_name, creator_id, asset_type_name
 
-async def download_asset(session, aid, save_dir):
+def determine_extension(content):
+    if content.startswith(b"OggS"):
+        return ".ogg"
+    if content.startswith(b"ID3") or content.startswith(bytes([0xff, 0xfb])) or content.startswith(bytes([0xff, 0xf3])):
+        return ".mp3"
+    if content.startswith(bytes([0x89, 0x50, 0x4e, 0x47])):
+        return ".png"
+    if content.startswith(bytes([0xff, 0xd8, 0xff])):
+        return ".jpg"
+    return ".rbxm"
+
+async def download_asset(session, aid, save_dir, source_place_id=None):
     headers = make_headers(COOKIE)
     places_to_try = list(PLACE_CACHE)
 
-    # 1. Coba download langsung tanpa place id
-    try:
-        url = f"https://assetdelivery.roblox.com/v2/assetId/{aid}"
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as r:
-            if r.status == 200:
-                data = await r.json(content_type=None)
-                locations = data.get("locations", [])
-                if locations and locations[0].get("location"):
-                    cdn_url = locations[0]["location"]
-                    async with session.get(cdn_url, headers={"User-Agent": "Roblox/WinInet"}, timeout=aiohttp.ClientTimeout(total=60)) as cdn_r:
-                        if cdn_r.status == 200:
-                            content = await cdn_r.read()
-                            if content and len(content) > 100:
-                                p = os.path.join(save_dir, f"asset_{aid}.rbxm")
-                                with open(p, "wb") as f: f.write(content)
-                                return {"success": True, "file_path": p}
-            elif r.status == 429: await asyncio.sleep(2)
-    except: pass
+    if source_place_id:
+        try:
+            spid = int(source_place_id)
+            if spid in places_to_try:
+                places_to_try.remove(spid)
+            places_to_try.insert(0, spid)
+        except: pass
+
+    # 1. Coba download langsung tanpa place id (v2 & v2 version 1)
+    for url_variant in [f"https://assetdelivery.roblox.com/v2/assetId/{aid}", f"https://assetdelivery.roblox.com/v2/assetId/{aid}/version/1"]:
+        try:
+            async with session.get(url_variant, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as r:
+                if r.status == 200:
+                    data = await r.json(content_type=None)
+                    locations = data.get("locations", [])
+                    if locations and locations[0].get("location"):
+                        cdn_url = locations[0]["location"]
+                        async with session.get(cdn_url, headers={"User-Agent": "Roblox/WinInet"}, timeout=aiohttp.ClientTimeout(total=60)) as cdn_r:
+                            if cdn_r.status == 200:
+                                content = await cdn_r.read()
+                                if content and len(content) > 100:
+                                    ext = determine_extension(content)
+                                    p = os.path.join(save_dir, f"asset_{aid}{ext}")
+                                    with open(p, "wb") as f: f.write(content)
+                                    return {"success": True, "file_path": p}
+                elif r.status == 429: await asyncio.sleep(2)
+        except: pass
 
     # 2. Ambil informasi Creator & Games untuk bypass Roblox-Place-Id
     c_type, c_id = None, None
@@ -142,7 +174,8 @@ async def download_asset(session, aid, save_dir):
             async with session.get(f"https://games.roblox.com/v2/users/{c_id}/games?accessFilter=Public&limit=25&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
                     for g in (await r.json(content_type=None)).get('data', []):
-                        if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
+                        if g.get('rootPlace', {}).get('id'):
+                            places_to_try.insert(0, g['rootPlace']['id'])
         except: pass
     elif c_type == "Group" and c_id:
         for f_param in ["accessFilter=1", "accessFilter=All", "accessFilter=Public"]:
@@ -150,7 +183,8 @@ async def download_asset(session, aid, save_dir):
                 async with session.get(f"https://games.roblox.com/v2/groups/{c_id}/games?{f_param}&limit=25&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
                     if r.status == 200:
                         for g in (await r.json(content_type=None)).get('data', []):
-                            if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
+                            if g.get('rootPlace', {}).get('id'):
+                                places_to_try.insert(0, g['rootPlace']['id'])
                         break
             except: pass
 
@@ -171,8 +205,10 @@ async def download_asset(session, aid, save_dir):
                             if cdn_r.status == 200:
                                 content = await cdn_r.read()
                                 if content and len(content) > 100:
-                                    p = os.path.join(save_dir, f"asset_{aid}.rbxm")
+                                    ext = determine_extension(content)
+                                    p = os.path.join(save_dir, f"asset_{aid}{ext}")
                                     with open(p, "wb") as f: f.write(content)
+                                    add_place_cache(pid)
                                     return {"success": True, "file_path": p}
         except: pass
 
@@ -182,8 +218,10 @@ async def download_asset(session, aid, save_dir):
                 if r.status == 200:
                     content = await r.read()
                     if content and len(content) > 100 and not content.startswith(b'{"errors"'):
-                        p = os.path.join(save_dir, f"asset_{aid}.rbxm")
+                        ext = determine_extension(content)
+                        p = os.path.join(save_dir, f"asset_{aid}{ext}")
                         with open(p, "wb") as f: f.write(content)
+                        add_place_cache(pid)
                         return {"success": True, "file_path": p}
                 elif r.status == 429: await asyncio.sleep(2)
         except: pass
@@ -199,7 +237,7 @@ async def upload_asset(session, file_path, key, target_id, asset_name, asset_typ
         ctype = "model/x-rbxm"
     elif t_lower == "audio" or fname.endswith(('.mp3', '.ogg', '.wav')):
         upload_type = "Audio"
-        ctype = "audio/mpeg"
+        ctype = "audio/ogg" if fname.endswith('.ogg') else "audio/mpeg"
     elif t_lower == "decal" or fname.endswith(('.png', '.jpg', '.jpeg')):
         upload_type = "Decal"
         ctype = "image/png"
@@ -282,25 +320,39 @@ async def grant_asset_permissions(session, aid, key, target_id):
                 pass
     except: pass
 
-async def process_speed(file_path, speed_val, save_dir, aid):
-    if not speed_val:
-        return file_path
-    try:
-        v = float(speed_val)
-        if v == 1.0:
-            return file_path
-    except:
+async def process_speed_or_convert(file_path, speed_val, save_dir, aid, is_audio=True):
+    if not is_audio:
         return file_path
     out_path = os.path.join(save_dir, f"speed_{aid}.mp3")
+
+    v = 1.0
+    if speed_val:
+        try: v = float(speed_val)
+        except: v = 1.0
+
     try:
-        new_rate = int(44100 * v)
-        filter_str = f"asetrate={new_rate},aresample=44100"
-        subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",filter_str,"-b:a","320k","-ar","44100",out_path],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-            return out_path
+        # Jika ada speed pitch bypass
+        if v != 1.0:
+            new_rate = int(44100 * v)
+            filter_str = f"asetrate={new_rate},aresample=44100"
+            subprocess.run(["ffmpeg","-y","-i",file_path,"-filter:a",filter_str,"-b:a","320k","-ar","44100",out_path],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                try: os.remove(file_path)
+                except: pass
+                return out_path
+        else:
+            # Jika file_path bukan mp3 murni (misal .ogg atau .rbxm), konversi ke mp3 320k agar Roblox Open Cloud menerima 100%
+            if not file_path.endswith('.mp3'):
+                subprocess.run(["ffmpeg","-y","-i",file_path,"-b:a","320k","-ar","44100",out_path],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+                    try: os.remove(file_path)
+                    except: pass
+                    return out_path
         return file_path
-    except: return file_path
+    except:
+        return file_path
 
 async def main():
     input_data = json.loads(sys.argv[1])
@@ -308,6 +360,7 @@ async def main():
     api_key = input_data['api_key']
     user_id = input_data['user_id']
     speed_val = input_data.get('speed_val')
+    source_place_id = input_data.get('source_place_id')
     workers = min(int(input_data.get('workers', 3)), 5)  # max 5 agar aman rate limit
     raw_type = (input_data.get('asset_type') or 'auto').lower().strip()
     if raw_type in ('animation', 'anim'):
@@ -334,7 +387,7 @@ async def main():
             else:
                 final_type = itype if itype else None
 
-            res = await download_asset(session, aid, save_dir)
+            res = await download_asset(session, aid, save_dir, source_place_id)
             if not res.get('success'):
                 return {'id': aid, 'ok': False, 'error': res.get('error'), 'name': display_name}
             file_path = res['file_path']
@@ -343,9 +396,9 @@ async def main():
                 try:
                     with open(file_path, 'rb') as fh:
                         content = fh.read(262144)
-                        if b'KeyframeSequence' in content or b'CurveAnimation' in content:
+                        if b'KeyframeSequence' in content or b'CurveAnimation' in content or content.startswith(b'<roblox'):
                             final_type = 'Animation'
-                        elif content.startswith(b'ID3') or content.startswith(bytes([0xff, 0xfb])) or content.startswith(bytes([0xff, 0xf3])):
+                        elif content.startswith(b'ID3') or content.startswith(b'OggS') or content.startswith(bytes([0xff, 0xfb])):
                             final_type = 'Audio'
                         elif content.startswith(bytes([0x89, 0x50, 0x4e, 0x47])) or content.startswith(bytes([0xff, 0xd8])):
                             final_type = 'Decal'
@@ -370,8 +423,8 @@ async def main():
                 t_label = final_type if final_type and final_type != 'auto' else 'Asset'
                 display_name = f"{t_label}_{aid}"
 
-            if final_type == 'Audio' and speed_val:
-                file_path = await process_speed(file_path, speed_val, save_dir, aid)
+            if final_type == 'Audio':
+                file_path = await process_speed_or_convert(file_path, speed_val, save_dir, aid, is_audio=True)
 
             up = await upload_asset(session, file_path, api_key, user_id, display_name, final_type)
             if not up['success']:
@@ -379,7 +432,6 @@ async def main():
 
             op_id = up.get('operation_id')
             if op_id:
-                # Poll lebih agresif: mulai cepat, naikkan interval bertahap
                 for delay in [1.5, 2, 2.5, 3, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]:
                     await asyncio.sleep(delay)
                     st = await op_check(session, op_id, api_key)
@@ -407,7 +459,13 @@ async def main():
         results = await asyncio.gather(*tasks, return_exceptions=False)
     print(json.dumps(list(results)))
 
-asyncio.run(main())
+async def main_entry():
+    try:
+        await main()
+    except Exception as e:
+        print(json.dumps([{"ok": False, "error": str(e)}]))
+
+asyncio.run(main_entry())
 `;
     fs.writeFileSync(SPOOF_SCRIPT, script);
 }
@@ -536,10 +594,18 @@ asyncio.run(main())
 ensureSpoofRunner();
 ensureYTRunner();
 
-function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto', workers = 3) {
+function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto', workers = 3, sourcePlaceId = null) {
     ensureSpoofRunner();
     return new Promise((resolve, reject) => {
-        const input = JSON.stringify({ ids, api_key: apiKey, user_id: userId, speed_val: speedVal, asset_type: assetType, workers });
+        const input = JSON.stringify({
+            ids,
+            api_key: apiKey,
+            user_id: userId,
+            speed_val: speedVal,
+            asset_type: assetType,
+            workers,
+            source_place_id: sourcePlaceId
+        });
         const proc = spawn('python3', [SPOOF_SCRIPT, input]);
         let stdout = '', stderr = '';
         proc.stdout.on('data', d => stdout += d);
