@@ -196,6 +196,43 @@ async def op_check(session, op_id, key):
     if aid.isdigit(): return {'state': 'done', 'asset_id': aid}
     return {'state': 'fail', 'error': 'No ID'}
 
+async def grant_asset_permissions(session, aid, key, target_id):
+    try:
+        universe_ids = []
+        try:
+            async with session.get(f"https://games.roblox.com/v2/users/{target_id}/games?accessFilter=Public&limit=50&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status == 200:
+                    d = await r.json(content_type=None)
+                    for g in d.get('data', []):
+                        if g.get('id'):
+                            universe_ids.append(str(g['id']))
+        except: pass
+
+        if universe_ids:
+            perm_requests = []
+            for uid in universe_ids:
+                perm_requests.append({
+                    "assetId": str(aid),
+                    "subject": {
+                        "subjectType": "Universe",
+                        "subjectId": str(uid)
+                    },
+                    "action": "Use"
+                })
+
+            headers = {
+                "x-api-key": key,
+                "Content-Type": "application/json"
+            }
+            async with session.patch(
+                "https://apis.roblox.com/asset-permissions-api/v1/assets/permissions",
+                headers=headers,
+                json={"requests": perm_requests},
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as pr:
+                pass
+    except: pass
+
 async def process_speed(file_path, speed_val, save_dir, aid):
     if not speed_val:
         return file_path
@@ -291,7 +328,10 @@ async def main():
                     await asyncio.sleep(3)
                     st = await op_check(session, op_id, api_key)
                     if st['state'] == 'done':
-                        results.append({'id': aid, 'ok': True, 'new_id': st['asset_id'], 'name': display_name, 'type': final_type}); break
+                        new_aid = st['asset_id']
+                        if final_type == 'Animation' or final_type == 'Audio':
+                            await grant_asset_permissions(session, new_aid, api_key, user_id)
+                        results.append({'id': aid, 'ok': True, 'new_id': new_aid, 'name': display_name, 'type': final_type}); break
                     elif st['state'] == 'fail':
                         results.append({'id': aid, 'ok': False, 'error': st['error'], 'name': display_name}); break
                 else:
@@ -430,6 +470,7 @@ ensureSpoofRunner();
 ensureYTRunner();
 
 function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto') {
+    ensureSpoofRunner();
     return new Promise((resolve, reject) => {
         const input = JSON.stringify({ ids, api_key: apiKey, user_id: userId, speed_val: speedVal, asset_type: assetType });
         const proc = spawn('python3', [SPOOF_SCRIPT, input]);
@@ -451,6 +492,7 @@ function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto') {
 }
 
 function runYTUpload(url, apiKey, userId, speedVal = null) {
+    ensureYTRunner();
     return new Promise((resolve, reject) => {
         const input = JSON.stringify({ url, api_key: apiKey, user_id: userId, speed_val: speedVal });
         const proc = spawn('python3', [YT_SCRIPT, input]);

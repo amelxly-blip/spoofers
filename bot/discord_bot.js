@@ -10,7 +10,9 @@ const {
     TextInputStyle,
     EmbedBuilder,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    StringSelectMenuBuilder,
+    StringSelectMenuOptionBuilder
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -115,54 +117,15 @@ const commands = [
             opt.setName('asset_id')
                 .setDescription('Roblox Asset ID (bisa beberapa ID dipisah koma/spasi)')
                 .setRequired(true)
-        )
-        .addStringOption(opt =>
-            opt.setName('speed')
-                .setDescription('Speed bypass audio (atur PlaybackSpeed in-game)')
-                .addChoices(
-                    { name: '1.5x (⭐ Recommended - Playback 0.67x)', value: '1.5' },
-                    { name: '2.0x (⚡ Bypass Cepat - Playback 0.50x)', value: '2.0' },
-                    { name: '1.0x (Normal - Asli tanpa pitch shift)', value: '1.0' },
-                    { name: '1.2x (Playback 0.83x)', value: '1.2' },
-                    { name: '1.8x (Playback 0.56x)', value: '1.8' },
-                    { name: '2.3x (Playback 0.43x)', value: '2.3' },
-                    { name: '2.5x (Bypass Ekstrem - Playback 0.40x)', value: '2.5' },
-                    { name: '3.0x (Bypass Max - Playback 0.33x)', value: '3.0' }
-                )
-        )
-        .addStringOption(opt =>
-            opt.setName('tipe')
-                .setDescription('Tipe target asset')
-                .addChoices(
-                    { name: 'Otomatis (Detect)', value: 'auto' },
-                    { name: 'Audio (MP3)', value: 'audio' },
-                    { name: 'Animasi (.rbxm)', value: 'animation' },
-                    { name: 'Decal (PNG)', value: 'decal' }
-                )
         ),
 
     new SlashCommandBuilder()
         .setName('ytupload')
-        .setDescription('Unduh audio YouTube (320kbps) & bypass speed/pitch ke Roblox')
+        .setDescription('Unduh audio YouTube (320kbps) & upload ke Roblox')
         .addStringOption(opt =>
             opt.setName('url')
                 .setDescription('Link video YouTube (bisa beberapa link dipisah koma/spasi)')
                 .setRequired(true)
-        )
-        .addStringOption(opt =>
-            opt.setName('speed')
-                .setDescription('Pilih Speed & Pitch bypass audio (atur PlaybackSpeed in-game)')
-                .setRequired(true)
-                .addChoices(
-                    { name: '1.5x (⭐ Recommended - Pitch Naik - Playback 0.67x)', value: '1.5' },
-                    { name: '2.0x (⚡ Bypass Cepat - High Pitch - Playback 0.50x)', value: '2.0' },
-                    { name: '1.0x (Normal - Asli tanpa bypass / pitch tetap)', value: '1.0' },
-                    { name: '1.2x (Pitch Ringan - Playback 0.83x)', value: '1.2' },
-                    { name: '1.8x (Pitch Tinggi - Playback 0.56x)', value: '1.8' },
-                    { name: '2.3x (Pitch Ekstrem - Playback 0.43x)', value: '2.3' },
-                    { name: '2.5x (Bypass Ekstrem - Playback 0.40x)', value: '2.5' },
-                    { name: '3.0x (Bypass Max - Playback 0.33x)', value: '3.0' }
-                )
         ),
 
     new SlashCommandBuilder()
@@ -223,6 +186,293 @@ async function fetchRobloxUser(userId) {
 }
 
 const OWNER_DISCORD_ID = '1309112913331748915';
+const pendingSessions = new Map();
+
+function buildSpoofTypeUI(sessionId, assetIds) {
+    const embed = new EmbedBuilder()
+        .setColor('#3498db')
+        .setTitle('🎮 PILIH TIPE ASET ROBLOX')
+        .setDescription(
+            `Asset ID: \`${assetIds.join(', ')}\`\n\n` +
+            'Silakan pilih jenis tipe aset yang ingin kamu spoof / bypass:\n\n' +
+            '• **[1] 🎵 Audio (MP3)** — Dilengkapi pilihan speed & pitch bypass\n' +
+            '• **[2] 🎬 Animasi (.rbxm)** — Otomatis aktifkan **Asset Permissions Write** agar dance jalan in-game\n' +
+            '• **[3] 🖼️ Decal (PNG)** — Bypass gambar & tekstur Roblox'
+        )
+        .setFooter({ text: 'Klik nomor pada tombol atau pilih dari menu box di bawah' })
+        .setTimestamp();
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`type_select:${sessionId}`)
+        .setPlaceholder('Pilih Tipe Aset (1. Audio / 2. Animasi / 3. Decal)...')
+        .addOptions(
+            new StringSelectMenuOptionBuilder()
+                .setLabel('1. 🎵 Audio (MP3)')
+                .setDescription('Bypass audio MP3 dengan pitch/speed shift')
+                .setValue('audio'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('2. 🎬 Animasi (.rbxm - Auto Permission Write)')
+                .setDescription('Bypass animasi dance & auto engine write permissions')
+                .setValue('animation'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('3. 🖼️ Decal (PNG)')
+                .setDescription('Bypass gambar / decal tekstur Roblox')
+                .setValue('decal')
+        );
+
+    const rowDropdown = new ActionRowBuilder().addComponents(selectMenu);
+
+    const rowButtons = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`type_btn:audio:${sessionId}`).setLabel('[1] 🎵 Audio').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`type_btn:animation:${sessionId}`).setLabel('[2] 🎬 Animasi').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`type_btn:decal:${sessionId}`).setLabel('[3] 🖼️ Decal').setStyle(ButtonStyle.Secondary)
+    );
+
+    return { embeds: [embed], components: [rowDropdown, rowButtons] };
+}
+
+function buildSpeedUI(sessionId, titleText) {
+    const embed = new EmbedBuilder()
+        .setColor('#e67e22')
+        .setTitle('🎵 PILIH SPEED & PITCH BYPASS AUDIO')
+        .setDescription(
+            `${titleText}\n\n` +
+            'Pilih kecepatan bypass & pitch agar audio lolos deteksi hak cipta Roblox:\n\n' +
+            '• **[1] 1.5x (⭐ Recommended)** — Playback 0.67x *(Pitch naik seimbang)*\n' +
+            '• **[2] 2.0x (⚡ Bypass Cepat)** — Playback 0.50x *(Pitch tinggi)*\n' +
+            '• **[3] 1.0x (Normal)** — Playback 1.00x *(Asli tanpa pitch shift)*\n' +
+            '• **[4] 1.2x** — Playback 0.83x | **[5] 1.8x** — Playback 0.56x\n' +
+            '• **[6] 2.3x** — Playback 0.43x | **[7] 2.5x** — Playback 0.40x | **[8] 3.0x** — Playback 0.33x'
+        )
+        .setFooter({ text: 'Klik salah satu tombol nomor atau pilih dari menu box di bawah' })
+        .setTimestamp();
+
+    const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`speed_select:${sessionId}`)
+        .setPlaceholder('Pilih Speed & Pitch Bypass Audio (1 - 8)...')
+        .addOptions(
+            new StringSelectMenuOptionBuilder()
+                .setLabel('1. 1.5x (⭐ Recommended - Playback 0.67x)')
+                .setDescription('Bypass standar terbaik, nada suara jernih')
+                .setValue('1.5'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('2. 2.0x (⚡ Bypass Cepat - Playback 0.50x)')
+                .setDescription('Bypass cepat untuk lagu sensitif copyright')
+                .setValue('2.0'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('3. 1.0x (Normal - Playback 1.00x)')
+                .setDescription('Asli original tanpa pitch shift')
+                .setValue('1.0'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('4. 1.2x (Pitch Ringan - Playback 0.83x)')
+                .setDescription('Sedikit percepat & pitch naik ringan')
+                .setValue('1.2'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('5. 1.8x (Pitch Tinggi - Playback 0.56x)')
+                .setDescription('Pitch tinggi lolos copyright ketat')
+                .setValue('1.8'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('6. 2.3x (Pitch Ekstrem - Playback 0.43x)')
+                .setDescription('Bypass tinggi audio')
+                .setValue('2.3'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('7. 2.5x (Bypass Ekstrem - Playback 0.40x)')
+                .setDescription('Ekstrem bypass audio')
+                .setValue('2.5'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('8. 3.0x (Bypass Max - Playback 0.33x)')
+                .setDescription('Bypass level maksimal')
+                .setValue('3.0')
+        );
+
+    const rowDropdown = new ActionRowBuilder().addComponents(selectMenu);
+
+    const rowButtons1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`speed_btn:1.5:${sessionId}`).setLabel('[1] 1.5x ⭐').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`speed_btn:2.0:${sessionId}`).setLabel('[2] 2.0x ⚡').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`speed_btn:1.0:${sessionId}`).setLabel('[3] 1.0x Normal').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`speed_btn:1.2:${sessionId}`).setLabel('[4] 1.2x').setStyle(ButtonStyle.Secondary)
+    );
+
+    const rowButtons2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`speed_btn:1.8:${sessionId}`).setLabel('[5] 1.8x').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`speed_btn:2.3:${sessionId}`).setLabel('[6] 2.3x').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`speed_btn:2.5:${sessionId}`).setLabel('[7] 2.5x Ekstrem').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`speed_btn:3.0:${sessionId}`).setLabel('[8] 3.0x Max').setStyle(ButtonStyle.Danger)
+    );
+
+    return { embeds: [embed], components: [rowDropdown, rowButtons1, rowButtons2] };
+}
+
+async function executeSpoofTask(interaction, session, speedVal, assetType) {
+    const { discordId, ids, userObj, isVip } = session;
+    const position = isVip ? 'Prioritas VIP ⚡' : `${taskQueue.length + 1}`;
+
+    await interaction.update({
+        embeds: [
+            new EmbedBuilder()
+                .setColor('#e67e22')
+                .setTitle('⏳ MEMASUKKAN KE ANTREAN SPOOF')
+                .setDescription(`Asset ID: \`${ids.join(', ')}\`\nSpeed: \`${speedVal}x\` | Tipe: \`${assetType.toUpperCase()}\``)
+                .addFields(
+                    { name: 'Status Antrean', value: isVip ? '🌟 **VIP (Langsung Diproses)**' : `Posisi Antrean: **#${position}**`, inline: true }
+                )
+        ],
+        components: []
+    });
+
+    enqueueTask(async () => {
+        try {
+            await interaction.editReply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor('#3498db')
+                        .setTitle('⚙️ SEDANG MEMPROSES SPOOF...')
+                        .setDescription(`Mengunduh aset dari Roblox CDN via bot tumbal, bypass, & upload ke akun Roblox kamu...`)
+                ]
+            });
+
+            const results = await runSpoof(ids, userObj.api_key, userObj.user_id, speedVal, assetType);
+
+            if (!results || !Array.isArray(results) || results.length === 0) {
+                return interaction.editReply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor('#e74c3c')
+                            .setTitle('❌ SPOOF GAGAL')
+                            .setDescription('Bot tidak dapat mengunduh atau mengunggah aset ke Roblox. Periksa kembali cookie bot tumbal / API key.')
+                    ]
+                });
+            }
+
+            let successCount = 0;
+            const embed = new EmbedBuilder()
+                .setColor('#2ecc71')
+                .setTitle('🔥 HASIL SPOOF ASSET ROBLOX')
+                .setTimestamp();
+
+            for (const item of results) {
+                if (item.ok && item.new_id) {
+                    successCount++;
+                    const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
+                    let valText = `• **ID Asli:** \`${item.id}\`\n• **ID Baru:** \`${item.new_id}\``;
+                    if (assetType === 'audio') {
+                        valText += `\n• **Speed Bypass:** \`${speedVal}x\` (High Pitch)\n• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed)*`;
+                    } else if (assetType === 'animation') {
+                        valText += `\n• **Status:** \`Permissions Write Activated (Dance Ready)\``;
+                    }
+                    embed.addFields({
+                        name: `✅ ${item.name || 'Asset'} (${item.type || assetType.toUpperCase()})`,
+                        value: valText
+                    });
+                } else {
+                    embed.addFields({
+                        name: `❌ Gagal: ID ${item.id}`,
+                        value: `Error: ${item.error || 'Gagal diproses'}`
+                    });
+                }
+            }
+
+            if (successCount > 0 && !isVip) {
+                users.useQuota(discordId, successCount);
+            }
+
+            const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - successCount)}/10`;
+            embed.setFooter({ text: `Akun: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
+
+            await interaction.editReply({ embeds: [embed] });
+
+        } catch (err) {
+            console.error('[Spoof Error]', err);
+            await interaction.editReply({
+                content: `❌ Terjadi kesalahan saat memproses: ${err.message}`
+            });
+        }
+    }, isVip);
+}
+
+async function executeYTUploadTask(interaction, session, speedVal) {
+    const { discordId, urls, userObj, isVip } = session;
+    const position = isVip ? 'Prioritas VIP ⚡' : `${taskQueue.length + 1}`;
+
+    await interaction.update({
+        embeds: [
+            new EmbedBuilder()
+                .setColor('#e67e22')
+                .setTitle('⏳ MEMASUKKAN KE ANTREAN YOUTUBE UPLOAD')
+                .setDescription(`Jumlah Link: **${urls.length} audio**\nSpeed Bypass: \`${speedVal}x\` (High Pitch)`)
+                .addFields(
+                    { name: 'Status Antrean', value: isVip ? '🌟 **VIP (Langsung Diproses)**' : `Posisi Antrean: **#${position}**`, inline: true }
+                )
+        ],
+        components: []
+    });
+
+    enqueueTask(async () => {
+        try {
+            await interaction.editReply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor('#3498db')
+                        .setTitle('⚙️ SEDANG MEMPROSES YOUTUBE AUDIO (320kbps)...')
+                        .setDescription(`Mengunduh ${urls.length} audio & mengunggah ke Roblox... Harap tunggu sebentar.`)
+                ]
+            });
+
+            let successCount = 0;
+            const embed = new EmbedBuilder()
+                .setColor('#2ecc71')
+                .setTitle('🎵 HASIL UPLOAD AUDIO YOUTUBE KE ROBLOX')
+                .setTimestamp();
+
+            for (let i = 0; i < urls.length; i++) {
+                const currentUrl = urls[i];
+                try {
+                    const res = await runYTUpload(currentUrl, userObj.api_key, userObj.user_id, speedVal);
+                    if (res && res.success && res.asset_id) {
+                        successCount++;
+                        const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
+                        embed.addFields({
+                            name: `✅ ${res.title || `Audio #${i + 1}`}`,
+                            value: (
+                                `• **Asset ID Baru:** \`${res.asset_id}\`\n` +
+                                `• **Speed & Pitch:** \`${speedVal}x\` (High Pitch Bypass)\n` +
+                                `• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed di Studio)*\n` +
+                                `• **Kualitas:** \`320kbps HD\`\n` +
+                                `• **Link:** [Buka YouTube](${currentUrl})`
+                            )
+                        });
+                    } else {
+                        embed.addFields({
+                            name: `❌ Gagal Audio #${i + 1}`,
+                            value: `• Error: ${res?.error || 'Gagal download/upload'}\n• Link: ${currentUrl}`
+                        });
+                    }
+                } catch (itemErr) {
+                    embed.addFields({
+                        name: `❌ Error Audio #${i + 1}`,
+                        value: `Error: ${itemErr.message}`
+                    });
+                }
+            }
+
+            if (successCount > 0 && !isVip) {
+                users.useQuota(discordId, successCount);
+            }
+
+            const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - successCount)}/10`;
+            embed.setFooter({ text: `Akun Uploader: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
+
+            await interaction.editReply({ embeds: [embed] });
+
+        } catch (err) {
+            console.error('[YT Upload Error]', err);
+            await interaction.editReply({
+                content: `❌ Terjadi kesalahan saat memproses: ${err.message}`
+            });
+        }
+    }, isVip);
+}
 
 async function sendQuotaExceededReply(interaction) {
     let ownerUser = null;
@@ -348,7 +598,72 @@ client.on('interactionCreate', async (interaction) => {
         return;
     }
 
-    // 2. Handle Slash Commands
+    // 2. Handle Interactive Buttons & Select Menus (Spoof Type & Speed Bypass)
+    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+        const customId = interaction.customId;
+
+        // A. Pilihan Tipe Aset (/spoof)
+        if (customId.startsWith('type_btn:') || customId.startsWith('type_select:')) {
+            let assetType = '';
+            let sessionId = '';
+            if (interaction.isButton()) {
+                const parts = customId.split(':');
+                assetType = parts[1];
+                sessionId = parts[2];
+            } else {
+                assetType = interaction.values[0];
+                sessionId = customId.split(':')[1];
+            }
+
+            const session = pendingSessions.get(sessionId);
+            if (!session) {
+                return interaction.reply({ content: '⚠️ Sesi ini telah kedaluwarsa. Silakan ketik ulang perintah.', ephemeral: true });
+            }
+            if (interaction.user.id !== session.discordId) {
+                return interaction.reply({ content: '⛔ Hanya pengguna yang menjalankan perintah ini yang dapat memilih.', ephemeral: true });
+            }
+
+            if (assetType === 'audio') {
+                session.type = 'audio';
+                const speedUI = buildSpeedUI(sessionId, `Asset ID: \`${session.ids.join(', ')}\` (Audio)`);
+                return interaction.update(speedUI);
+            } else {
+                session.type = assetType;
+                return executeSpoofTask(interaction, session, '1.0', assetType);
+            }
+        }
+
+        // B. Pilihan Speed & Pitch Bypass (/ytupload atau /spoof Audio)
+        if (customId.startsWith('speed_btn:') || customId.startsWith('speed_select:')) {
+            let speedVal = '1.5';
+            let sessionId = '';
+            if (interaction.isButton()) {
+                const parts = customId.split(':');
+                speedVal = parts[1];
+                sessionId = parts[2];
+            } else {
+                speedVal = interaction.values[0];
+                sessionId = customId.split(':')[1];
+            }
+
+            const session = pendingSessions.get(sessionId);
+            if (!session) {
+                return interaction.reply({ content: '⚠️ Sesi ini telah kedaluwarsa. Silakan ketik ulang perintah.', ephemeral: true });
+            }
+            if (interaction.user.id !== session.discordId) {
+                return interaction.reply({ content: '⛔ Hanya pengguna yang menjalankan perintah ini yang dapat memilih.', ephemeral: true });
+            }
+
+            if (session.isYT) {
+                return executeYTUploadTask(interaction, session, speedVal);
+            } else {
+                return executeSpoofTask(interaction, session, speedVal, 'audio');
+            }
+        }
+        return;
+    }
+
+    // 3. Handle Slash Commands
     if (!interaction.isChatInputCommand()) return;
 
     const { commandName } = interaction;
@@ -433,30 +748,28 @@ client.on('interactionCreate', async (interaction) => {
                     )
                 },
                 {
-                    name: '2️⃣ Cara Membuat API Key di Roblox Creator Hub',
+                    name: '2️⃣ Cara Membuat API Key di Roblox Creator Hub (Cukup 1 API Key)',
                     value: (
                         '1. Buka browser: **[create.roblox.com/dashboard/credentials](https://create.roblox.com/dashboard/credentials)**\n' +
                         '2. Login dengan akun Roblox uploader kamu.\n' +
                         '3. Klik tombol biru **`Create API Key`** di pojok kanan atas.\n' +
                         '4. Beri nama API Key (contoh: `RobloxSpoofer`).\n' +
-                        '5. Pada bagian **Access Permissions**:\n' +
-                        '   - Klik **Add API System** -> Pilih **Assets**\n' +
-                        '   - Centang operasi **`Read`** dan **`Write`** (`asset:read`, `asset:write`).\n' +
+                        '5. Pada bagian **Access Permissions** (Aktifkan 2 Izin ini):\n' +
+                        '   • **Assets** -> Centang izin **`Read`** dan **`Write`**\n' +
+                        '   • **Asset Permissions** -> Centang izin **`Write`**\n' +
+                        '   *(Izin Asset Permissions Write wajib aktif agar animasi/dance otomatis diaktifkan dan bisa dimainkan di game!)*\n' +
                         '6. Pada bagian **IP Restrictions**:\n' +
-                        '   - Pilih **`Allow all IP addresses`** (atau ketik `0.0.0.0/0`) agar bot dapat mengupload tanpa batasan IP.\n' +
-                        '7. Klik **`Save & Generate Key`**.\n' +
-                        '8. **Salin kodenya langsung** (dimulai dengan format secret key) lalu tempelkan di `/setup`.'
+                        '   • Pilih **`Allow all IP addresses`** (0.0.0.0/0) agar tidak terblokir IP.\n' +
+                        '7. Klik **`Save & Generate Key`** lalu salin kodenya ke `/setup`.'
                     )
                 },
                 {
                     name: '3️⃣ Cara Spoof / Bypass Asset Roblox (/spoof)',
                     value: (
-                        '• Ketik perintah `/spoof`.\n' +
-                        '• Masukkan **asset_id** Roblox yang ingin kamu bypass (bisa audio, animasi, decal).\n' +
-                        '• Bisa beberapa ID sekaligus (pisahkan dengan koma atau spasi).\n' +
-                        '• Pilih **Speed** (Rekomendasi `1.5x` agar otomatis lolos copyright Roblox).\n' +
-                        '• Bot akan mendownload asset asli via bot tumbal, memodifikasi audio/pitch, dan menguploadnya ke inventori akun kamu!\n' +
-                        '• Di Roblox Studio, ubah properti `PlaybackSpeed` pada Sound (misal: `0.67` jika pakai speed 1.5x) agar suara kembali normal.'
+                        '• Ketik perintah `/spoof` dan masukkan Asset ID Roblox (bisa multi ID pisah koma/spasi).\n' +
+                        '• Bot membalas di channel publik dengan pilihan tipe: `[1] Audio`, `[2] Animasi`, atau `[3] Decal`.\n' +
+                        '• **Jika pilih Animasi**: Bot otomatis menembak engine API Key Asset Permissions Write agar animasi/dance jalan lancar di game.\n' +
+                        '• **Jika pilih Audio**: Bot memunculkan menu box speed bypass (1.0x s/d 3.0x).'
                     )
                 },
                 {
@@ -533,9 +846,6 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const rawIds = interaction.options.getString('asset_id');
-        const speedVal = interaction.options.getString('speed') || '1.5';
-        const assetType = interaction.options.getString('tipe') || 'auto';
-
         const ids = rawIds.split(/[\r\n,\s]+/).map(x => x.trim()).filter(x => /^\d+$/.test(x));
         if (!ids.length) {
             return interaction.reply({ content: '❌ **Format Asset ID tidak valid!** Masukkan angka ID yang benar.', ephemeral: true });
@@ -543,84 +853,19 @@ client.on('interactionCreate', async (interaction) => {
 
         const isVip = check.role === 'vip';
         const userObj = check.user;
+        const sessionId = 'sp_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
 
-        // Beri respon antrean awal
-        const position = isVip ? 'Prioritas VIP ⚡' : `${taskQueue.length + 1}`;
-        await interaction.reply({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor('#e67e22')
-                    .setTitle('⏳ MEMASUKKAN KE ANTREAN SPOOF')
-                    .setDescription(`Asset ID: \`${ids.join(', ')}\`\nSpeed: \`${speedVal}x\` | Tipe: \`${assetType}\``)
-                    .addFields(
-                        { name: 'Status Antrean', value: isVip ? '🌟 **VIP (Langsung Diproses)**' : `Posisi Antrean: **#${position}**`, inline: true }
-                    )
-            ]
+        pendingSessions.set(sessionId, {
+            discordId,
+            ids,
+            userObj,
+            isVip,
+            isYT: false
         });
 
-        // Masukkan task ke sistem Antrean FIFO
-        enqueueTask(async () => {
-            try {
-                await interaction.editReply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor('#3498db')
-                            .setTitle('⚙️ SEDANG MEMPROSES SPOOF...')
-                            .setDescription(`Mengunduh aset dari Roblox CDN via bot tumbal & mempercepat audio...`)
-                    ]
-                });
-
-                const results = await runSpoof(ids, userObj.api_key, userObj.user_id, speedVal, assetType);
-
-                if (!results || !Array.isArray(results) || results.length === 0) {
-                    return interaction.editReply({
-                        embeds: [
-                            new EmbedBuilder()
-                                .setColor('#e74c3c')
-                                .setTitle('❌ SPOOF GAGAL')
-                                .setDescription('Bot tidak dapat mengunduh atau mengunggah aset ke Roblox. Periksa kembali cookie bot tumbal / API key.')
-                        ]
-                    });
-                }
-
-                let successCount = 0;
-                const embed = new EmbedBuilder()
-                    .setColor('#2ecc71')
-                    .setTitle('🔥 HASIL SPOOF ASSET ROBLOX')
-                    .setTimestamp();
-
-                for (const item of results) {
-                    if (item.status === 'completed' && item.new_id) {
-                        successCount++;
-                        const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
-                        embed.addFields({
-                            name: `✅ ${item.name || 'Asset'} (${item.asset_type || 'Audio'})`,
-                            value: `• **ID Asli:** \`${item.id}\`\n• **ID Baru:** \`${item.new_id}\`\n• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed)*`
-                        });
-                    } else {
-                        embed.addFields({
-                            name: `❌ Gagal: ID ${item.id}`,
-                            value: `Error: ${item.error || 'Gagal diproses'}`
-                        });
-                    }
-                }
-
-                if (successCount > 0 && !isVip) {
-                    users.useQuota(discordId, successCount);
-                }
-
-                const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - successCount)}/10`;
-                embed.setFooter({ text: `Akun: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
-
-                await interaction.editReply({ embeds: [embed] });
-
-            } catch (err) {
-                console.error('[Spoof Error]', err);
-                await interaction.editReply({
-                    content: `❌ Terjadi kesalahan saat memproses: ${err.message}`
-                });
-            }
-        }, isVip);
+        // Balas secara PUBLIK dengan pilihan tipe aset
+        const typeUI = buildSpoofTypeUI(sessionId, ids);
+        return interaction.reply(typeUI);
     }
 
     // === /ytupload ===
@@ -642,7 +887,6 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const rawUrls = interaction.options.getString('url');
-        const speedVal = interaction.options.getString('speed') || '1.0';
         const isVip = check.role === 'vip';
         const userObj = check.user;
 
@@ -659,83 +903,18 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        const position = isVip ? 'Prioritas VIP ⚡' : `${taskQueue.length + 1}`;
-        await interaction.reply({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor('#e67e22')
-                    .setTitle('⏳ MEMASUKKAN KE ANTREAN YOUTUBE UPLOAD')
-                    .setDescription(`Jumlah Link: **${urls.length} audio**\nSpeed: \`${speedVal}x\``)
-                    .addFields(
-                        { name: 'Status Antrean', value: isVip ? '🌟 **VIP (Langsung Diproses)**' : `Posisi Antrean: **#${position}**`, inline: true }
-                    )
-            ]
+        const sessionId = 'yt_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        pendingSessions.set(sessionId, {
+            discordId,
+            urls,
+            userObj,
+            isVip,
+            isYT: true
         });
 
-        enqueueTask(async () => {
-            try {
-                await interaction.editReply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setColor('#3498db')
-                            .setTitle('⚙️ SEDANG MEMPROSES YOUTUBE AUDIO (320kbps)...')
-                            .setDescription(`Mengunduh ${urls.length} audio & mengunggah ke Roblox... Harap tunggu sebentar.`)
-                    ]
-                });
-
-                let successCount = 0;
-                const embed = new EmbedBuilder()
-                    .setColor('#2ecc71')
-                    .setTitle('🎵 HASIL UPLOAD AUDIO YOUTUBE KE ROBLOX')
-                    .setTimestamp();
-
-                for (let i = 0; i < urls.length; i++) {
-                    const currentUrl = urls[i];
-                    try {
-                        const res = await runYTUpload(currentUrl, userObj.api_key, userObj.user_id, speedVal);
-                        if (res && res.success && res.asset_id) {
-                            successCount++;
-                            const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
-                            embed.addFields({
-                                name: `✅ ${res.title || `Audio #${i + 1}`}`,
-                                value: (
-                                    `• **Asset ID Baru:** \`${res.asset_id}\`\n` +
-                                    `• **Speed & Pitch:** \`${speedVal}x\` (High Pitch Bypass)\n` +
-                                    `• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed di Studio)*\n` +
-                                    `• **Kualitas:** \`320kbps HD\`\n` +
-                                    `• **Link:** [Buka YouTube](${currentUrl})`
-                                )
-                            });
-                        } else {
-                            embed.addFields({
-                                name: `❌ Gagal Audio #${i + 1}`,
-                                value: `• Error: ${res?.error || 'Gagal download/upload'}\n• Link: ${currentUrl}`
-                            });
-                        }
-                    } catch (itemErr) {
-                        embed.addFields({
-                            name: `❌ Error Audio #${i + 1}`,
-                            value: `Error: ${itemErr.message}`
-                        });
-                    }
-                }
-
-                if (successCount > 0 && !isVip) {
-                    users.useQuota(discordId, successCount);
-                }
-
-                const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - successCount)}/10`;
-                embed.setFooter({ text: `Akun Uploader: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
-
-                await interaction.editReply({ embeds: [embed] });
-
-            } catch (err) {
-                console.error('[YT Upload Error]', err);
-                await interaction.editReply({
-                    content: `❌ Terjadi kesalahan saat memproses: ${err.message}`
-                });
-            }
-        }, isVip);
+        // Balas secara PUBLIK dengan pilihan speed & pitch bypass
+        const speedUI = buildSpeedUI(sessionId, `Link YouTube: \`${urls.join(', ')}\``);
+        return interaction.reply(speedUI);
     }
 });
 
