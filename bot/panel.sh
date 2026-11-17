@@ -198,7 +198,9 @@ list_vip() {
             console.log('  DISCORD USER ID       | USERNAME ROBLOX   | SISA HARI');
             console.log('  -------------------------------------------------------------');
             for (const v of list) {
-                console.log('  ' + v.discord_id.padEnd(21) + ' | ' + (v.roblox||'-').padEnd(17) + ' | ' + v.days_left + ' hari (' + v.until + ')');
+                const idStr = String(v.discord_id || '-').padEnd(21);
+                const rbxStr = String(v.roblox || '-').padEnd(17);
+                console.log('  ' + idStr + ' | ' + rbxStr + ' | ' + v.days_left + ' hari (' + v.until + ')');
             }
             console.log('  -------------------------------------------------------------');
         }

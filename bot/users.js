@@ -134,12 +134,12 @@ function getAllVIP() {
         try {
             let u = JSON.parse(fs.readFileSync(path.join(USERS_DIR, f), 'utf8'));
             u = checkVIP(u);
-            if (u.role === 'vip') {
+            if (u && u.role === 'vip') {
                 const diff = u.vip_until ? Math.ceil((new Date(u.vip_until) - new Date()) / 86400000) : 999;
                 vips.push({
-                    discord_id: u.discord_id,
-                    tag: u.tag || 'User',
-                    roblox: u.roblox_username || '-',
+                    discord_id: String(u.discord_id || f.replace('.json', '')),
+                    tag: String(u.tag || 'User'),
+                    roblox: String(u.roblox_username || '-'),
                     days_left: Math.max(0, diff),
                     until: u.vip_until ? new Date(u.vip_until).toLocaleDateString('id-ID') : 'Permanen'
                 });

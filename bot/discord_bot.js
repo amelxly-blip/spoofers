@@ -143,10 +143,10 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('ytupload')
-        .setDescription('Unduh audio dari YouTube (320kbps) dan upload ke Roblox')
+        .setDescription('Unduh audio dari YouTube (320kbps) & upload ke Roblox (bisa multi link pisah koma)')
         .addStringOption(opt =>
             opt.setName('url')
-                .setDescription('Link video YouTube (https://...)')
+                .setDescription('Link video YouTube (bisa beberapa link dipisah koma/spasi)')
                 .setRequired(true)
         )
         .addStringOption(opt =>
@@ -635,52 +635,92 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        const ytUrl = interaction.options.getString('url');
+        const rawUrls = interaction.options.getString('url');
         const speedVal = interaction.options.getString('speed') || '1.0';
         const isVip = check.role === 'vip';
         const userObj = check.user;
 
+        // Pisahkan multi link YouTube jika dipisah koma, spasi, atau enter
+        const urls = rawUrls
+            .split(/[\r\n,\s]+/)
+            .map(x => x.trim())
+            .filter(x => x.length > 5 && (x.startsWith('http://') || x.startsWith('https://') || x.includes('youtube.com') || x.includes('youtu.be')));
+
+        if (!urls.length) {
+            return interaction.reply({
+                content: '❌ **Link YouTube tidak valid!** Masukkan URL YouTube yang benar (contoh: `https://youtu.be/...`).',
+                ephemeral: true
+            });
+        }
+
+        const position = isVip ? 'Prioritas VIP ⚡' : `${taskQueue.length + 1}`;
         await interaction.reply({
             embeds: [
                 new EmbedBuilder()
                     .setColor('#e67e22')
-                    .setTitle('⏳ MENGUNDUH DARI YOUTUBE (320kbps)')
-                    .setDescription(`URL: \`${ytUrl}\`\nHarap tunggu proses konversi studio audio...`)
+                    .setTitle('⏳ MEMASUKKAN KE ANTREAN YOUTUBE UPLOAD')
+                    .setDescription(`Jumlah Link: **${urls.length} audio**\nSpeed: \`${speedVal}x\``)
+                    .addFields(
+                        { name: 'Status Antrean', value: isVip ? '🌟 **VIP (Langsung Diproses)**' : `Posisi Antrean: **#${position}**`, inline: true }
+                    )
             ]
         });
 
         enqueueTask(async () => {
             try {
-                const res = await runYTUpload(ytUrl, userObj.api_key, userObj.user_id, speedVal);
-                if (res && res.success && res.asset_id) {
-                    if (!isVip) users.useQuota(discordId, 1);
-                    const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - 1)}/10`;
+                await interaction.editReply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor('#3498db')
+                            .setTitle('⚙️ SEDANG MEMPROSES YOUTUBE AUDIO (320kbps)...')
+                            .setDescription(`Mengunduh ${urls.length} audio & mengunggah ke Roblox... Harap tunggu sebentar.`)
+                    ]
+                });
 
-                    const embed = new EmbedBuilder()
-                        .setColor('#2ecc71')
-                        .setTitle('🎵 YOUTUBE AUDIO BERHASIL DIUPLOAD')
-                        .addFields(
-                            { name: 'Judul Lagu', value: res.title || 'YouTube Audio', inline: false },
-                            { name: '🆔 Asset ID Baru', value: `\`${res.asset_id}\``, inline: true },
-                            { name: 'Speed', value: `${speedVal}x`, inline: true },
-                            { name: 'Sisa Kuota', value: sisa, inline: true }
-                        )
-                        .setFooter({ text: `Uploader: @${userObj.roblox_username}` })
-                        .setTimestamp();
+                let successCount = 0;
+                const embed = new EmbedBuilder()
+                    .setColor('#2ecc71')
+                    .setTitle('🎵 HASIL UPLOAD AUDIO YOUTUBE KE ROBLOX')
+                    .setTimestamp();
 
-                    await interaction.editReply({ embeds: [embed] });
-                } else {
-                    await interaction.editReply({
-                        embeds: [
-                            new EmbedBuilder()
-                                .setColor('#e74c3c')
-                                .setTitle('❌ GAGAL MENGUNGGAH DARI YOUTUBE')
-                                .setDescription(`Error: ${res?.error || 'Unknown error'}`)
-                        ]
-                    });
+                for (let i = 0; i < urls.length; i++) {
+                    const currentUrl = urls[i];
+                    try {
+                        const res = await runYTUpload(currentUrl, userObj.api_key, userObj.user_id, speedVal);
+                        if (res && res.success && res.asset_id) {
+                            successCount++;
+                            embed.addFields({
+                                name: `✅ ${res.title || `Audio #${i + 1}`}`,
+                                value: `• **Asset ID Baru:** \`${res.asset_id}\`\n• **Speed:** \`${speedVal}x\`\n• **Link:** [YouTube Link](${currentUrl})`
+                            });
+                        } else {
+                            embed.addFields({
+                                name: `❌ Gagal Audio #${i + 1}`,
+                                value: `• Error: ${res?.error || 'Gagal download/upload'}\n• Link: ${currentUrl}`
+                            });
+                        }
+                    } catch (itemErr) {
+                        embed.addFields({
+                            name: `❌ Error Audio #${i + 1}`,
+                            value: `Error: ${itemErr.message}`
+                        });
+                    }
                 }
+
+                if (successCount > 0 && !isVip) {
+                    users.useQuota(discordId, successCount);
+                }
+
+                const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - successCount)}/10`;
+                embed.setFooter({ text: `Akun Uploader: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
+
+                await interaction.editReply({ embeds: [embed] });
+
             } catch (err) {
-                await interaction.editReply({ content: `❌ Error: ${err.message}` });
+                console.error('[YT Upload Error]', err);
+                await interaction.editReply({
+                    content: `❌ Terjadi kesalahan saat memproses: ${err.message}`
+                });
             }
         }, isVip);
     }
