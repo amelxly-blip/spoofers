@@ -1,22 +1,16 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/index.js" ]; then
-    BOT_DIR="$SCRIPT_DIR"
-elif [ -d "$HOME/bot" ]; then
-    BOT_DIR="$HOME/bot"
-else
-    BOT_DIR="$SCRIPT_DIR"
-fi
-LOG_FILE="$BOT_DIR/bot.log"
+BOT_DIR="$SCRIPT_DIR"
 PID_FILE="$BOT_DIR/bot.pid"
-CONFIG_FILE="$BOT_DIR/.bot_config"
+LOG_FILE="$BOT_DIR/bot.log"
+CONFIG_FILE="$HOME/.bot_config"
+COOKIE_FILE="$HOME/.uploader_config.json"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 WHITE='\033[1;37m'
 NC='\033[0m'
@@ -25,20 +19,6 @@ load_config() {
     if [ -f "$CONFIG_FILE" ]; then
         source "$CONFIG_FILE"
     fi
-    # Auto-detect nomor bot dari session auth jika ada
-    if [ -f "$BOT_DIR/auth/creds.json" ]; then
-        DETECTED=$(grep -o '"id":"[0-9]*' "$BOT_DIR/auth/creds.json" | head -1 | cut -d'"' -f4)
-        if [ -n "$DETECTED" ]; then
-            BOT_NOMOR="$DETECTED (Auto QR)"
-        fi
-    fi
-}
-
-save_config() {
-    cat > "$CONFIG_FILE" <<EOF
-BOT_COOKIE="$BOT_COOKIE"
-BOT_OWNER="$BOT_OWNER"
-EOF
 }
 
 is_running() {
@@ -53,341 +33,283 @@ is_running() {
 
 header() {
     clear
-    echo -e "${MAGENTA}"
-    echo "  ███╗   ███╗███████╗██╗     ██╗     ███████╗"
-    echo "  ████╗ ████║██╔════╝██║     ██║     ██╔════╝"
-    echo "  ██╔████╔██║█████╗  ██║     ██║     ███████╗"
-    echo "  ██║╚██╔╝██║██╔══╝  ██║     ██║     ╚════██║"
-    echo "  ██║ ╚═╝ ██║███████╗███████╗███████╗███████║"
-    echo "  ╚═╝     ╚═╝╚══════╝╚══════╝╚══════╝╚══════╝"
-    echo -e "${CYAN}          SpooferBot Panel by mells${NC}"
-    echo -e "${BLUE}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     load_config
+    echo -e "${MAGENTA}====================================================${NC}"
+    echo -e "${WHITE}       🎮  DISCORD ROBLOX SPOOFER CONTROL PANEL     ${NC}"
+    echo -e "${MAGENTA}====================================================${NC}"
     if is_running; then
-        echo -e "  Status Bot : ${GREEN}● RUNNING${NC} (PID: $(cat $PID_FILE))"
+        echo -e "  Status Bot   : ${GREEN}● RUNNING (PID: $(cat "$PID_FILE"))${NC}"
     else
-        echo -e "  Status Bot : ${RED}● STOPPED${NC}"
+        echo -e "  Status Bot   : ${RED}○ STOPPED${NC}"
     fi
-    NOMOR_DISPLAY="${BOT_NOMOR:-belum terhubung (scan QR)}"
-    OWNER_DISPLAY="${BOT_OWNER:-belum diset}"
-    COOKIE_DISPLAY="${BOT_COOKIE:+sudah diset}"
-    COOKIE_DISPLAY="${COOKIE_DISPLAY:-belum diset}"
-    echo -e "  Nomor Bot  : ${YELLOW}$NOMOR_DISPLAY${NC}"
-    echo -e "  Nomor Owner: ${YELLOW}$OWNER_DISPLAY${NC}"
-    echo -e "  Cookie     : ${YELLOW}$COOKIE_DISPLAY${NC}"
-    echo -e "${BLUE}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+
+    if [ -n "$DISCORD_TOKEN" ]; then
+        echo -e "  Discord Token: ${GREEN}✔ Terpasang${NC}"
+    else
+        echo -e "  Discord Token: ${RED}✘ Belum diset${NC}"
+    fi
+
+    # Cek cookie tumbal
+    COOKIE=""
+    if [ -f "$COOKIE_FILE" ]; then
+        COOKIE=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('$COOKIE_FILE')).cookie||'')}catch(e){}")
+    fi
+    if [ -n "$COOKIE" ]; then
+        echo -e "  Cookie Tumbal: ${GREEN}✔ Terpasang${NC}"
+    else
+        echo -e "  Cookie Tumbal: ${RED}✘ Belum diset${NC}"
+    fi
+    echo -e "${MAGENTA}----------------------------------------------------${NC}"
 }
 
-menu_utama() {
+setup_token() {
     header
-    echo -e "${WHITE}  MENU UTAMA${NC}"
+    echo -e "${WHITE}  SETUP DISCORD BOT TOKEN${NC}"
     echo ""
-    echo -e "  ${CYAN}[1]${NC} Setup Nomor Owner / Admin"
-    echo -e "  ${CYAN}[2]${NC} Setup Cookie Roblox"
-    echo -e "  ${CYAN}[3]${NC} Lihat Config Tersimpan"
-    echo -e "  ${CYAN}[4]${NC} Jalankan Bot"
-    echo -e "  ${CYAN}[5]${NC} Hentikan Bot"
-    echo -e "  ${CYAN}[6]${NC} Restart Bot"
-    echo -e "  ${CYAN}[7]${NC} Lihat Log Bot"
-    echo -e "  ${CYAN}[8]${NC} Install / Update Dependencies"
-    echo -e "  ${CYAN}[9]${NC} Scan QR Code (Login WA)"
-    echo -e "  ${RED}[0]${NC} Keluar"
-    echo ""
-    echo -ne "  ${WHITE}Pilih menu: ${NC}"
-    read -r CHOICE
-    case $CHOICE in
-        1) setup_owner ;;
-        2) setup_cookie ;;
-        3) lihat_config ;;
-        4) jalankan_bot ;;
-        5) hentikan_bot ;;
-        6) restart_bot ;;
-        7) lihat_log ;;
-        8) install_deps ;;
-        9) scan_qr ;;
-        0) echo -e "\n${GREEN}  Sampai jumpa!${NC}\n"; exit 0 ;;
-        *) echo -e "\n${RED}  Pilihan tidak valid.${NC}"; sleep 1; menu_utama ;;
-    esac
-}
+    echo -e "  Dapatkan token dari: https://discord.com/developers/applications"
+    echo -ne "  Masukkan Bot Token: "
+    read -r TOKEN_INPUT
+    TOKEN_INPUT=$(echo "$TOKEN_INPUT" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-setup_nomor() {
-    header
-    echo -e "${WHITE}  SETUP NOMOR BOT WHATSAPP${NC}"
-    echo ""
-    echo -e "  Masukkan nomor WA bot (format: 628xxxxxxxxxx)"
-    echo -e "  ${YELLOW}Tanpa + dan tanpa spasi${NC}"
-    echo ""
-    echo -ne "  Nomor Bot: "
-    read -r INPUT_NOMOR
-    if [[ "$INPUT_NOMOR" =~ ^[0-9]{10,15}$ ]]; then
-        BOT_NOMOR="$INPUT_NOMOR"
-        save_config
-        echo ""
-        echo -e "  ${GREEN}✅ Nomor Bot berhasil disimpan: $BOT_NOMOR${NC}"
+    if [ -n "$TOKEN_INPUT" ]; then
+        echo "DISCORD_TOKEN=\"$TOKEN_INPUT\"" > "$CONFIG_FILE"
+        echo -e "\n${GREEN}  ✔ Token berhasil disimpan ke $CONFIG_FILE!${NC}"
     else
-        echo ""
-        echo -e "  ${RED}❌ Format nomor salah. Contoh: 628123456789${NC}"
+        echo -e "\n${RED}  Token tidak boleh kosong!${NC}"
     fi
     echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
-    read -r
-    menu_utama
-}
-
-setup_owner() {
-    header
-    echo -e "${WHITE}  SETUP NOMOR OWNER / ADMIN${NC}"
-    echo ""
-    echo -e "  Nomor ini dipakai sebagai kontak saat user kehabisan kuota / beli VIP,"
-    echo -e "  dan pemegang nomor ini punya akses perintah admin (.addpremium, dll)."
-    echo -e "  Format: 628xxxxxxxxxx (${YELLOW}tanpa + dan tanpa spasi${NC})"
-    echo ""
-    echo -ne "  Nomor Owner: "
-    read -r INPUT_OWNER
-    if [[ "$INPUT_OWNER" =~ ^[0-9]{10,15}$ ]]; then
-        BOT_OWNER="$INPUT_OWNER"
-        save_config
-        echo ""
-        echo -e "  ${GREEN}✅ Nomor Owner berhasil disimpan: $BOT_OWNER${NC}"
-    else
-        echo ""
-        echo -e "  ${RED}❌ Format nomor salah. Contoh: 628123456789${NC}"
-    fi
-    echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
+    echo -ne "  Tekan Enter untuk kembali..."
     read -r
     menu_utama
 }
 
 setup_cookie() {
     header
-    echo -e "${WHITE}  SETUP COOKIE ROBLOX${NC}"
+    echo -e "${WHITE}  SETUP COOKIE ROBLOX (.ROBLOSECURITY BOT TUMBAL)${NC}"
     echo ""
-    echo -e "  Cookie .ROBLOSECURITY dipakai bot untuk download asset."
-    echo ""
-    echo -e "  ${YELLOW}Cara dapat cookie:${NC}"
-    echo -e "  1. Buka roblox.com di browser, login"
-    echo -e "  2. F12 → Application → Cookies → .ROBLOSECURITY"
-    echo -e "  3. Copy value-nya (panjang banget, wajar)"
-    echo ""
-    echo -ne "  Paste cookie di sini: "
-    read -r INPUT_COOKIE
-    if [ -n "$INPUT_COOKIE" ]; then
-        BOT_COOKIE="$INPUT_COOKIE"
-        save_config
-        # Simpan ke .uploader_config.json di home
-        python3 -c "
-import json, os
-cfg_path = os.path.expanduser('~/.uploader_config.json')
-data = {}
-if os.path.exists(cfg_path):
-    try: data = json.loads(open(cfg_path).read())
-    except: pass
-data['cookie'] = '$INPUT_COOKIE'
-open(cfg_path, 'w').write(json.dumps(data, indent=2))
-print('OK')
-" 2>/dev/null
-        echo ""
-        echo -e "  ${GREEN}✅ Cookie berhasil disimpan ke ~/.uploader_config.json${NC}"
+    echo -ne "  Paste Cookie .ROBLOSECURITY: "
+    read -r COOKIE_INPUT
+    COOKIE_INPUT=$(echo "$COOKIE_INPUT" | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+    if [ -n "$COOKIE_INPUT" ]; then
+        node -e "
+            const fs = require('fs');
+            let cfg = {};
+            try { cfg = JSON.parse(fs.readFileSync('$COOKIE_FILE')); } catch(e){}
+            cfg.cookie = process.argv[1];
+            fs.writeFileSync('$COOKIE_FILE', JSON.stringify(cfg, null, 2));
+        " "$COOKIE_INPUT"
+        echo -e "\n${GREEN}  ✔ Cookie Bot Tumbal berhasil disimpan!${NC}"
     else
-        echo ""
-        echo -e "  ${RED}❌ Cookie tidak boleh kosong.${NC}"
+        echo -e "\n${RED}  Cookie tidak boleh kosong!${NC}"
     fi
     echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
+    echo -ne "  Tekan Enter untuk kembali..."
     read -r
     menu_utama
 }
 
-lihat_config() {
+add_vip() {
     header
-    echo -e "${WHITE}  CONFIG TERSIMPAN${NC}"
+    echo -e "${WHITE}  TAMBAH / PERPANJANG VIP USER DISCORD${NC}"
     echo ""
-    load_config
-    echo -e "  Nomor Bot  : ${YELLOW}${BOT_NOMOR:-belum diset}${NC}"
-    echo -e "  Nomor Owner: ${YELLOW}${BOT_OWNER:-belum diset}${NC}"
-    if [ -n "$BOT_COOKIE" ]; then
-        PREVIEW="${BOT_COOKIE:0:30}..."
-        echo -e "  Cookie     : ${YELLOW}$PREVIEW${NC}"
-    else
-        echo -e "  Cookie     : ${RED}belum diset${NC}"
-    fi
-    echo ""
-    if [ -f "$HOME/.uploader_config.json" ]; then
-        echo -e "  ${GREEN}✅ ~/.uploader_config.json ada${NC}"
-    else
-        echo -e "  ${RED}❌ ~/.uploader_config.json belum ada${NC}"
-    fi
-    if [ -d "$BOT_DIR/auth" ]; then
-        echo -e "  ${GREEN}✅ Folder auth ada (sudah scan QR sebelumnya)${NC}"
-    else
-        echo -e "  ${YELLOW}⚠️  Folder auth belum ada (belum scan QR)${NC}"
-    fi
-    echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
-    read -r
-    menu_utama
-}
+    echo -ne "  Masukkan Discord User ID: "
+    read -r UID
+    UID=$(echo "$UID" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-jalankan_bot() {
-    header
-    if is_running; then
-        echo -e "  ${YELLOW}⚠️  Bot sudah running (PID: $(cat $PID_FILE))${NC}"
-        echo -e "  Gunakan menu Restart jika mau reload."
-        echo ""
-        echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
-        read -r
+    if ! [[ "$UID" =~ ^[0-9]{15,22}$ ]]; then
+        echo -e "\n${RED}  Format Discord User ID tidak valid! (Harus 17-20 digit angka).${NC}"
+        sleep 2
         menu_utama
         return
     fi
-    # Bersihkan sisa proses node lama agar tidak bentrok
-    killall -9 node 2>/dev/null
-    pkill -9 -f "node index.js" 2>/dev/null
-    rm -f "$PID_FILE"
-    sleep 1
-    load_config
-    echo -e "  ${CYAN}Menjalankan bot di background...${NC}"
-    mkdir -p "$BOT_DIR"
-    cd "$BOT_DIR" || exit
-    nohup node index.js > "$LOG_FILE" 2>&1 &
-    BOT_PID=$!
-    echo $BOT_PID > "$PID_FILE"
-    sleep 2
-    if is_running; then
-        echo -e "  ${GREEN}✅ Bot berhasil dijalankan! PID: $BOT_PID${NC}"
-        echo -e "  ${GREEN}✅ Log: $LOG_FILE${NC}"
-        echo ""
-        echo -e "  ${YELLOW}Jika belum pernah scan QR, pilih menu 9 untuk lihat QR.${NC}"
-    else
-        echo -e "  ${RED}❌ Bot gagal jalan. Cek log:${NC}"
-        tail -20 "$LOG_FILE"
-    fi
+
     echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
+    echo -e "  Pilihan Durasi VIP:"
+    echo -e "  [1] 7 Hari (1 Minggu)"
+    echo -e "  [2] 30 Hari (1 Bulan)"
+    echo -e "  [3] 60 Hari (2 Bulan)"
+    echo -e "  [4] 365 Hari (1 Tahun)"
+    echo -e "  [5] Custom Hari"
+    echo -ne "  Pilih durasi [1-5]: "
+    read -r D_OPT
+
+    DAYS=30
+    case $D_OPT in
+        1) DAYS=7 ;;
+        2) DAYS=30 ;;
+        3) DAYS=60 ;;
+        4) DAYS=365 ;;
+        5)
+            echo -ne "  Masukkan jumlah hari: "
+            read -r DAYS
+            ;;
+        *) DAYS=30 ;;
+    esac
+
+    node -e "
+        const users = require('./users');
+        const u = users.addVIP('$UID', $DAYS);
+        console.log('\n  ✔ Sukses! User ID ' + '$UID' + ' sekarang VIP selama $DAYS hari.');
+        console.log('  Masa aktif s/d: ' + new Date(u.vip_until).toLocaleDateString('id-ID'));
+    "
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
     read -r
     menu_utama
 }
 
-hentikan_bot() {
+remove_vip() {
     header
-    killall -9 node 2>/dev/null
-    pkill -9 -f "node index.js" 2>/dev/null
-    if [ -f "$PID_FILE" ]; then
+    echo -e "${WHITE}  HAPUS / CABUT STATUS VIP USER DISCORD${NC}"
+    echo ""
+    echo -ne "  Masukkan Discord User ID yang ingin dicabut: "
+    read -r UID
+    UID=$(echo "$UID" | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+    if [ -n "$UID" ]; then
+        node -e "
+            const users = require('./users');
+            const res = users.removeVIP('$UID');
+            if (res) {
+                console.log('\n  ✔ Status VIP untuk User ID ' + '$UID' + ' telah dicabut.');
+            } else {
+                console.log('\n  User tidak ditemukan.');
+            }
+        "
+    fi
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
+    read -r
+    menu_utama
+}
+
+list_vip() {
+    header
+    echo -e "${WHITE}  DAFTAR MEMBER VIP DISCORD AKTIF${NC}"
+    echo ""
+    node -e "
+        const users = require('./users');
+        const list = users.getAllVIP();
+        if (list.length === 0) {
+            console.log('  (Belum ada member VIP aktif)');
+        } else {
+            console.log('  -------------------------------------------------------------');
+            console.log('  DISCORD USER ID       | USERNAME ROBLOX   | SISA HARI');
+            console.log('  -------------------------------------------------------------');
+            for (const v of list) {
+                console.log('  ' + v.discord_id.padEnd(21) + ' | ' + (v.roblox||'-').padEnd(17) + ' | ' + v.days_left + ' hari (' + v.until + ')');
+            }
+            console.log('  -------------------------------------------------------------');
+        }
+    "
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
+    read -r
+    menu_utama
+}
+
+start_bot() {
+    header
+    if is_running; then
+        echo -e "  ${YELLOW}Bot sudah berjalan dengan PID $(cat "$PID_FILE")${NC}"
+    else
+        echo -e "  ${CYAN}Memulai Bot Discord...${NC}"
+        cd "$BOT_DIR" || exit
+        nohup node discord_bot.js > "$LOG_FILE" 2>&1 &
+        echo $! > "$PID_FILE"
+        sleep 2
+        if is_running; then
+            echo -e "  ${GREEN}✔ Bot berhasil dijalankan! (PID: $(cat "$PID_FILE"))${NC}"
+        else
+            echo -e "  ${RED}✘ Bot gagal jalan! Periksa log:${NC}"
+            tail -n 10 "$LOG_FILE"
+        fi
+    fi
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
+    read -r
+    menu_utama
+}
+
+stop_bot() {
+    header
+    if is_running; then
         PID=$(cat "$PID_FILE")
+        echo -e "  ${YELLOW}Menghentikan bot (PID: $PID)...${NC}"
+        kill "$PID" 2>/dev/null
         rm -f "$PID_FILE"
-        echo -e "  ${GREEN}✅ Bot dihentikan (PID: $PID)${NC}"
+        sleep 1
+        echo -e "  ${GREEN}✔ Bot berhasil dihentikan.${NC}"
     else
-        echo -e "  ${GREEN}✅ Semua proses bot dihentikan.${NC}"
+        echo -e "  ${YELLOW}Bot tidak sedang berjalan.${NC}"
     fi
     echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
+    echo -ne "  Tekan Enter untuk kembali..."
     read -r
     menu_utama
 }
 
-restart_bot() {
+view_logs() {
     header
-    echo -e "  ${CYAN}Merestart bot...${NC}"
-    killall -9 node 2>/dev/null
-    pkill -9 -f "node index.js" 2>/dev/null
-    rm -f "$PID_FILE"
-    echo -e "  ${YELLOW}Semua instance bot lama dimatikan.${NC}"
-    sleep 2
-    rm -f "$HOME/yt_uploader_runner.py"
-    cd "$BOT_DIR" || exit
-    nohup node index.js > "$LOG_FILE" 2>&1 &
-    BOT_PID=$!
-    echo $BOT_PID > "$PID_FILE"
-    sleep 2
-    if is_running; then
-        echo -e "  ${GREEN}✅ Bot berhasil direstart! PID: $BOT_PID${NC}"
-    else
-        echo -e "  ${RED}❌ Bot gagal jalan. Cek log.${NC}"
-        tail -10 "$LOG_FILE"
-    fi
-    echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
-    read -r
-    menu_utama
-}
-
-lihat_log() {
-    header
-    echo -e "${WHITE}  LOG BOT (50 baris terakhir)${NC}"
-    echo -e "${BLUE}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${WHITE}  LOG REAL-TIME BOT DISCORD (Tekan CTRL+C untuk kembali)${NC}"
     echo ""
     if [ -f "$LOG_FILE" ]; then
-        tail -50 "$LOG_FILE"
-    else
-        echo -e "  ${YELLOW}Log belum ada. Jalankan bot dulu.${NC}"
-    fi
-    echo ""
-    echo -e "${BLUE}  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -ne "  ${CYAN}[f] Follow log realtime  |  Enter untuk kembali: ${NC}"
-    read -r OPT
-    if [ "$OPT" = "f" ]; then
-        echo -e "  ${YELLOW}Ctrl+C untuk stop follow${NC}"
         tail -f "$LOG_FILE"
+    else
+        echo "Belum ada log file."
+        sleep 2
     fi
     menu_utama
 }
 
-install_deps() {
+install_dependencies() {
     header
-    echo -e "${WHITE}  INSTALL / UPDATE DEPENDENCIES${NC}"
+    echo -e "${WHITE}  INSTALL DEPENDENCIES (discord.js, python, yt-dlp, ffmpeg)${NC}"
     echo ""
     cd "$BOT_DIR" || exit
-    echo -e "  ${CYAN}Menginstall npm packages...${NC}"
-    npm config set allow-git all
-    echo "allow-git=all" > "$BOT_DIR/.npmrc"
-    npm install --ignore-scripts 2>&1 | tail -5
+    echo -e "  ${CYAN}Installing discord.js...${NC}"
+    npm install discord.js node-fetch --save
+    echo -e "  ${GREEN}✔ Selesai!${NC}"
     echo ""
-    echo -e "  ${CYAN}Approve install scripts baileys...${NC}"
-    npm install-scripts approve @whiskeysockets/baileys protobufjs 2>&1 | tail -3
-    npm rebuild 2>&1 | tail -3
-    echo ""
-    echo -e "  ${CYAN}Install qrcode-terminal...${NC}"
-    npm install qrcode-terminal 2>&1 | tail -3
-    echo ""
-    echo -e "  ${CYAN}Cek ffmpeg...${NC}"
-    if ! command -v ffmpeg >/dev/null 2>&1; then
-        pkg install ffmpeg -y 2>&1 | tail -3
-    fi
-    echo ""
-    echo -e "  ${CYAN}Cek python dependencies...${NC}"
-    pip install aiohttp yt-dlp --break-system-packages -q 2>&1 | tail -3
-    rm -f "$HOME/yt_uploader_runner.py" "$HOME/spoofer_bot_runner.py"
-    echo ""
-    echo -e "  ${GREEN}✅ Selesai!${NC}"
-    echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
+    echo -ne "  Tekan Enter untuk kembali..."
     read -r
     menu_utama
 }
 
-scan_qr() {
+menu_utama() {
     header
-    echo -e "${WHITE}  SCAN QR CODE${NC}"
+    echo -e "${WHITE}  PILIH MENU:${NC}"
     echo ""
-    if ! is_running; then
-        echo -e "  ${RED}❌ Bot tidak sedang running. Jalankan bot dulu (Menu 4).${NC}"
-    else
-        echo -e "  ${CYAN}Menampilkan QR dari log...${NC}"
-        echo ""
-        if [ -f "$LOG_FILE" ]; then
-            grep -A 30 "QR" "$LOG_FILE" | tail -35
-        fi
-        echo ""
-        echo -e "  ${YELLOW}Jika QR tidak muncul, coba lihat log realtime (Menu 7 → f)${NC}"
-    fi
+    echo -e "  ${CYAN}[1]${NC} Setup Discord Bot Token"
+    echo -e "  ${CYAN}[2]${NC} Setup Cookie Bot Tumbal"
+    echo -e "  ${MAGENTA}[3]${NC} Tambah / Perpanjang VIP User (Discord ID)"
+    echo -e "  ${MAGENTA}[4]${NC} Hapus / Cabut VIP User"
+    echo -e "  ${MAGENTA}[5]${NC} Cek List Member VIP Aktif"
+    echo -e "  ${GREEN}[6]${NC} Jalankan Bot Discord (Start)"
+    echo -e "  ${RED}[7]${NC} Hentikan Bot Discord (Stop)"
+    echo -e "  ${YELLOW}[8]${NC} Restart Bot Discord"
+    echo -e "  ${WHITE}[9]${NC} Lihat Log Bot (Real-time)"
+    echo -e "  ${WHITE}[10]${NC} Install Dependencies (npm install)"
+    echo -e "  ${RED}[0]${NC} Keluar"
     echo ""
-    echo -ne "  ${CYAN}Tekan Enter untuk kembali...${NC}"
-    read -r
-    menu_utama
-}
+    echo -ne "  ${WHITE}Pilih menu: ${NC}"
+    read -r CHOICE
 
-# Pastikan folder bot ada
-mkdir -p "$BOT_DIR"
+    case $CHOICE in
+        1) setup_token ;;
+        2) setup_cookie ;;
+        3) add_vip ;;
+        4) remove_vip ;;
+        5) list_vip ;;
+        6) start_bot ;;
+        7) stop_bot ;;
+        8) stop_bot; start_bot ;;
+        9) view_logs ;;
+        10) install_dependencies ;;
+        0) clear; exit 0 ;;
+        *) echo -e "\n${RED}  Pilihan tidak valid.${NC}"; sleep 1; menu_utama ;;
+    esac
+}
 
 menu_utama
