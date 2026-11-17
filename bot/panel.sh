@@ -114,10 +114,10 @@ add_vip() {
     echo -e "${WHITE}  TAMBAH / PERPANJANG VIP USER DISCORD${NC}"
     echo ""
     echo -ne "  Masukkan Discord User ID: "
-    read -r UID
-    UID=$(echo "$UID" | sed 's/^[ \t]*//;s/[ \t]*$//')
+    read -r TARGET_UID
+    TARGET_UID=$(echo "$TARGET_UID" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-    if ! [[ "$UID" =~ ^[0-9]{15,22}$ ]]; then
+    if ! [[ "$TARGET_UID" =~ ^[0-9]{15,22}$ ]]; then
         echo -e "\n${RED}  Format Discord User ID tidak valid! (Harus 17-20 digit angka).${NC}"
         sleep 2
         menu_utama
@@ -149,8 +149,8 @@ add_vip() {
 
     node -e "
         const users = require('./users');
-        const u = users.addVIP('$UID', $DAYS);
-        console.log('\n  ✔ Sukses! User ID ' + '$UID' + ' sekarang VIP selama $DAYS hari.');
+        const u = users.addVIP('$TARGET_UID', $DAYS);
+        console.log('\n  ✔ Sukses! User ID ' + '$TARGET_UID' + ' sekarang VIP selama $DAYS hari.');
         console.log('  Masa aktif s/d: ' + new Date(u.vip_until).toLocaleDateString('id-ID'));
     "
     echo ""
@@ -164,15 +164,15 @@ remove_vip() {
     echo -e "${WHITE}  HAPUS / CABUT STATUS VIP USER DISCORD${NC}"
     echo ""
     echo -ne "  Masukkan Discord User ID yang ingin dicabut: "
-    read -r UID
-    UID=$(echo "$UID" | sed 's/^[ \t]*//;s/[ \t]*$//')
+    read -r TARGET_UID
+    TARGET_UID=$(echo "$TARGET_UID" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-    if [ -n "$UID" ]; then
+    if [ -n "$TARGET_UID" ]; then
         node -e "
             const users = require('./users');
-            const res = users.removeVIP('$UID');
+            const res = users.removeVIP('$TARGET_UID');
             if (res) {
-                console.log('\n  ✔ Status VIP untuk User ID ' + '$UID' + ' telah dicabut.');
+                console.log('\n  ✔ Status VIP untuk User ID ' + '$TARGET_UID' + ' telah dicabut.');
             } else {
                 console.log('\n  User tidak ditemukan.');
             }

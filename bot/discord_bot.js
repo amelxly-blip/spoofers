@@ -8,7 +8,9 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    EmbedBuilder
+    EmbedBuilder,
+    ButtonBuilder,
+    ButtonStyle
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -162,6 +164,10 @@ const commands = [
         .setDescription('Cek status akun Roblox, sisa kuota, dan role VIP kamu'),
 
     new SlashCommandBuilder()
+        .setName('tutorial')
+        .setDescription('Panduan lengkap setup akun, bikin API Key Roblox, upload YouTube, & spoof asset'),
+
+    new SlashCommandBuilder()
         .setName('hapusakun')
         .setDescription('Putuskan koneksi akun Roblox uploader kamu dari bot')
 ].map(c => c.toJSON());
@@ -194,6 +200,74 @@ async function fetchRobloxUser(userId) {
         }
     } catch {}
     return null;
+}
+
+const OWNER_DISCORD_ID = '1309112913331748915';
+
+async function sendQuotaExceededReply(interaction) {
+    let ownerUser = null;
+    try {
+        ownerUser = await client.users.fetch(OWNER_DISCORD_ID);
+    } catch (e) {
+        console.error('[Fetch Owner Error]', e);
+    }
+
+    const ownerName = ownerUser ? (ownerUser.globalName || ownerUser.username) : 'Owner';
+    const ownerAvatar = ownerUser ? ownerUser.displayAvatarURL({ dynamic: true, size: 512 }) : null;
+
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setLabel(`Chat / DM ${ownerName} (Beli Premium)`)
+            .setStyle(ButtonStyle.Link)
+            .setURL(`https://discord.com/users/${OWNER_DISCORD_ID}`)
+            .setEmoji('💎')
+    );
+
+    const embed = new EmbedBuilder()
+        .setColor('#e74c3c')
+        .setTitle('⛔ KUOTA HARIAN KAMU HABIS!')
+        .setDescription(
+            `### ⚠️ KUOTA HARIAN KAMU HABIS SEGERA BELI PREMIUM ANDA KE OWNER VIA DM\n\n` +
+            `Sebagai **Free User**, kamu memiliki batas **10 upload per 24 jam**.\n` +
+            `Semua kuota gratis kamu hari ini telah terpakai.`
+        )
+        .addFields(
+            {
+                name: '👑 Hubungi Owner',
+                value: `**Mention:** <@${OWNER_DISCORD_ID}>\n**Username:** \`${ownerName}\`\n**User ID:** \`${OWNER_DISCORD_ID}\``,
+                inline: false
+            },
+            {
+                name: '💎 Keuntungan Akun VIP / Premium',
+                value: (
+                    '⚡ **Unlimited Kuota** (Bypass & upload tanpa batas harian)\n' +
+                    '🚀 **Prioritas Antrean #1** (Langsung diproses tanpa antre)\n' +
+                    '🎵 **Support YouTube Audio 320kbps + Multi Asset Spoof**\n' +
+                    '🛡️ **Bypass Anti Hak Cipta & Aman Banned**'
+                ),
+                inline: false
+            }
+        )
+        .setFooter({
+            text: `Klik tombol di bawah untuk langsung membuka profil / DM ke ${ownerName}`,
+            iconURL: ownerAvatar || undefined
+        })
+        .setTimestamp();
+
+    if (ownerAvatar) {
+        embed.setThumbnail(ownerAvatar);
+        embed.setAuthor({
+            name: `${ownerName} (Owner Spoofer)`,
+            iconURL: ownerAvatar,
+            url: `https://discord.com/users/${OWNER_DISCORD_ID}`
+        });
+    }
+
+    return interaction.reply({
+        embeds: [embed],
+        components: [row],
+        ephemeral: true
+    });
 }
 
 // ==========================================
@@ -315,6 +389,98 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
+    // === /tutorial ===
+    if (commandName === 'tutorial') {
+        let ownerUser = null;
+        try {
+            ownerUser = await client.users.fetch(OWNER_DISCORD_ID);
+        } catch {}
+        const ownerName = ownerUser ? (ownerUser.globalName || ownerUser.username) : 'Owner';
+        const ownerAvatar = ownerUser ? ownerUser.displayAvatarURL({ dynamic: true, size: 256 }) : null;
+
+        const embed = new EmbedBuilder()
+            .setColor('#3498db')
+            .setTitle('📖 PANDUAN PENGGUNAAN DISCORD ROBLOX SPOOFER')
+            .setDescription('Berikut panduan lengkap langkah demi langkah menggunakan bot Roblox Spoofer:')
+            .addFields(
+                {
+                    name: '1️⃣ Setup Akun Roblox (/setup)',
+                    value: (
+                        '• Ketik perintah `/setup` di channel mana saja.\n' +
+                        '• Akan muncul jendela formulir **Private / Rahasia** (hanya kamu yang bisa melihat).\n' +
+                        '• Masukkan **Roblox Open Cloud API Key** dan **Roblox User ID** akun uploader kamu.\n' +
+                        '• Bot otomatis memvalidasi ke Roblox dan menyimpan kredensial kamu dengan aman.'
+                    )
+                },
+                {
+                    name: '2️⃣ Cara Membuat API Key di Roblox Creator Hub',
+                    value: (
+                        '1. Buka browser: **[create.roblox.com/dashboard/credentials](https://create.roblox.com/dashboard/credentials)**\n' +
+                        '2. Login dengan akun Roblox uploader kamu.\n' +
+                        '3. Klik tombol biru **`Create API Key`** di pojok kanan atas.\n' +
+                        '4. Beri nama API Key (contoh: `RobloxSpoofer`).\n' +
+                        '5. Pada bagian **Access Permissions**:\n' +
+                        '   - Klik **Add API System** -> Pilih **Assets**\n' +
+                        '   - Centang operasi **`Read`** dan **`Write`** (`asset:read`, `asset:write`).\n' +
+                        '6. Pada bagian **IP Restrictions**:\n' +
+                        '   - Pilih **`Allow all IP addresses`** (atau ketik `0.0.0.0/0`) agar bot dapat mengupload tanpa batasan IP.\n' +
+                        '7. Klik **`Save & Generate Key`**.\n' +
+                        '8. **Salin kodenya langsung** (dimulai dengan format secret key) lalu tempelkan di `/setup`.'
+                    )
+                },
+                {
+                    name: '3️⃣ Cara Spoof / Bypass Asset Roblox (/spoof)',
+                    value: (
+                        '• Ketik perintah `/spoof`.\n' +
+                        '• Masukkan **asset_id** Roblox yang ingin kamu bypass (bisa audio, animasi, decal).\n' +
+                        '• Bisa beberapa ID sekaligus (pisahkan dengan koma atau spasi).\n' +
+                        '• Pilih **Speed** (Rekomendasi `1.5x` agar otomatis lolos copyright Roblox).\n' +
+                        '• Bot akan mendownload asset asli via bot tumbal, memodifikasi audio/pitch, dan menguploadnya ke inventori akun kamu!\n' +
+                        '• Di Roblox Studio, ubah properti `PlaybackSpeed` pada Sound (misal: `0.67` jika pakai speed 1.5x) agar suara kembali normal.'
+                    )
+                },
+                {
+                    name: '4️⃣ Cara Upload Audio dari YouTube (/ytupload)',
+                    value: (
+                        '• Ketik perintah `/ytupload`.\n' +
+                        '• Masukkan link video YouTube (misal: `https://www.youtube.com/watch?v=...` atau `https://youtu.be/...`).\n' +
+                        '• Pilih opsi **Speed** bypass audio.\n' +
+                        '• Bot akan otomatis mengunduh audio kualitas studio 320kbps dan langsung mengunggahnya ke akun Roblox kamu.'
+                    )
+                },
+                {
+                    name: '5️⃣ Cek Status & Kuota (/status)',
+                    value: (
+                        '• Ketik `/status` untuk melihat sisa kuota harian kamu, status role (Free / VIP), dan masa aktif VIP.'
+                    )
+                }
+            )
+            .setFooter({
+                text: `Roblox Spoofer Bot • Hubungi Owner (${ownerName}) untuk aktivasi VIP`,
+                iconURL: ownerAvatar || undefined
+            })
+            .setTimestamp();
+
+        if (ownerAvatar) {
+            embed.setThumbnail(ownerAvatar);
+        }
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel('Buka Creator Hub Roblox')
+                .setStyle(ButtonStyle.Link)
+                .setURL('https://create.roblox.com/dashboard/credentials')
+                .setEmoji('🔗'),
+            new ButtonBuilder()
+                .setLabel(`Chat Owner (${ownerName})`)
+                .setStyle(ButtonStyle.Link)
+                .setURL(`https://discord.com/users/${OWNER_DISCORD_ID}`)
+                .setEmoji('💎')
+        );
+
+        return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+    }
+
     // === /hapusakun ===
     if (commandName === 'hapusakun') {
         let user = users.getUser(discordId);
@@ -339,10 +505,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
             if (check.reason === 'quota_habis') {
-                return interaction.reply({
-                    content: '❌ **Kuota upload harian kamu sudah habis (10/10)!**\nReset setiap 24 jam atau hubungi Owner untuk upgrade VIP.',
-                    ephemeral: true
-                });
+                return sendQuotaExceededReply(interaction);
             }
             if (check.reason === 'banned') {
                 return interaction.reply({ content: '🚫 Akun kamu diblokir dari bot ini.', ephemeral: true });
@@ -451,7 +614,7 @@ client.on('interactionCreate', async (interaction) => {
                 });
             }
             if (check.reason === 'quota_habis') {
-                return interaction.reply({ content: '❌ **Kuota upload harian kamu sudah habis (10/10)!**', ephemeral: true });
+                return sendQuotaExceededReply(interaction);
             }
             if (check.reason === 'banned') {
                 return interaction.reply({ content: '🚫 Akun kamu diblokir.', ephemeral: true });
