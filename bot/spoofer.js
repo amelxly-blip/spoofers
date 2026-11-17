@@ -62,19 +62,22 @@ async def get_asset_details(session, aid, headers):
     except: pass
 
     # 2. Fallback: Develop API
-    if not name:
+    if not name or not creator_name:
         try:
             async with session.get(f'https://develop.roblox.com/v1/assets?assetIds={aid}', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
                     d = await r.json(content_type=None)
                     items = d.get('data', [])
                     if items:
-                        name = items[0].get('name')
+                        if not name: name = items[0].get('name')
                         if not asset_type_name: asset_type_name = ASSET_TYPE_IDS.get(items[0].get('assetTypeId'))
+                        c_info = items[0].get('creator', {})
+                        if not creator_name: creator_name = c_info.get('name')
+                        if not creator_id: creator_id = c_info.get('id')
         except: pass
 
     # 3. Fallback: Toolbox Service
-    if not name:
+    if not name or not creator_name:
         try:
             async with session.get(f'https://apis.roblox.com/toolbox-service/v1/items/details?assetIds={aid}', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
@@ -82,8 +85,11 @@ async def get_asset_details(session, aid, headers):
                     items = d.get('data', [])
                     if items:
                         asset = items[0].get('asset', {})
-                        name = asset.get('name')
+                        if not name: name = asset.get('name')
                         if not asset_type_name: asset_type_name = ASSET_TYPE_IDS.get(asset.get('typeId'))
+                        c_info = items[0].get('creator', {}) or asset.get('creator', {})
+                        if not creator_name: creator_name = c_info.get('name')
+                        if not creator_id: creator_id = c_info.get('id')
         except: pass
     return name, creator_name, creator_id, asset_type_name
 
@@ -382,11 +388,11 @@ async def main():
                         new_aid = st['asset_id']
                         if final_type == 'Animation' or final_type == 'Audio':
                             await grant_asset_permissions(session, new_aid, api_key, user_id)
-                        results.append({'id': aid, 'ok': True, 'new_id': new_aid, 'name': display_name, 'type': final_type}); break
+                        results.append({'id': aid, 'ok': True, 'new_id': new_aid, 'name': display_name, 'type': final_type, 'creator': f"{creator_name} ({creator_id})" if creator_name else None}); break
                     elif st['state'] == 'fail':
                         results.append({'id': aid, 'ok': False, 'error': st['error'], 'name': display_name}); break
                 else:
-                    results.append({'id': aid, 'ok': True, 'new_id': 'pending', 'name': display_name, 'type': final_type})
+                    results.append({'id': aid, 'ok': True, 'new_id': 'pending', 'name': display_name, 'type': final_type, 'creator': f"{creator_name} ({creator_id})" if creator_name else None})
             try: os.remove(file_path)
             except: pass
     print(json.dumps(results))

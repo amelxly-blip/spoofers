@@ -540,34 +540,26 @@ async function startBot() {
                             useQuota(nomor, ok.length);
 
                             const TYPE_EMOJI = {
-                                'Audio': '🔊',
-                                'Animation': '🎬',
-                                'Decal': '🖼️',
-                                'Image': '🖼️',
-                                'Model': '📦',
-                                'Mesh': '📦',
-                                'MeshPart': '📦',
-                                'Plugin': '🔧',
-                                'Video': '🎥',
+                                'Audio': '🔊', 'Animation': '🎬', 'Decal': '🖼️',
+                                'Image': '🖼️', 'Model': '📦', 'Mesh': '📦',
+                                'MeshPart': '📦', 'Plugin': '🔧', 'Video': '🎥',
                             };
 
-                            let res = `✅ *HASIL SPOOF ${typeLabel.toUpperCase()}*\n\n`;
-                            res += `Berhasil: ${ok.length} | Gagal: ${fail.length} | Total: ${results.length}\n\n`;
+                            let res = `✅ *HASIL SPOOF ${typeLabel.toUpperCase()}*\n`;
+                            res += `Berhasil: *${ok.length}* | Gagal: *${fail.length}* | Total: *${results.length}*\n`;
+                            res += `━━━━━━━━━━━━━━━━━━━━\n`;
                             for (const r of ok) {
                                 const emoji = TYPE_EMOJI[r.type] || '📄';
-                                const typeName = r.type || assetType;
-                                res += `${emoji} *${r.name}*\n`;
-                                res += `   Tipe     : ${typeName}\n`;
-                                res += `   ID Lama  : ${r.id}\n`;
-                                res += `   ID Baru  : \`${r.new_id}\`\n\n`;
+                                const creator = r.creator ? ` | 👤 ${r.creator}` : '';
+                                res += `${emoji} *${r.name}* | \`${r.id}\` → \`${r.new_id}\`${creator}\n`;
                             }
                             for (const r of fail) {
-                                res += `❌ ID ${r.id} (${r.name || 'Unknown'}): ${r.error || 'Gagal spoof'}\n\n`;
+                                res += `❌ \`${r.id}\` (${r.name || 'Unknown'}): ${r.error || 'Gagal'}\n`;
                             }
 
                             const user = getUser(nomor);
                             const sisa = (isOwner || user.role === 'vip') ? 'Unlimited ♾️' : `${user.quota.limit - user.quota.used}x`;
-                            res += `📦 Sisa kuota: ${sisa}`;
+                            res += `━━━━━━━━━━━━━━━━━━━━\n📦 Sisa kuota: ${sisa}`;
                             await reply(res.trim(), 2000);
                         } catch (e) {
                             await reply(`❌ Error saat spoof: ${e.message}`, 2000);
@@ -600,28 +592,25 @@ async function startBot() {
                         const fail = results.filter(r => !r.ok);
                         useQuota(nomor, ok.length);
 
-                        let res = `✅ *HASIL SPOOF AUDIO*\n\n`;
-                        res += `Berhasil: ${ok.length} | Gagal: ${fail.length} | Total: ${results.length}\n\n`;
+                        const speedLabel = SPEED_OPTIONS[choice]?.label || 'Normal';
+                        const recPlayback = SPEED_OPTIONS[choice]?.rec || '1.00x';
+
+                        let res = `✅ *HASIL SPOOF AUDIO*\n`;
+                        res += `Berhasil: *${ok.length}* | Gagal: *${fail.length}* | Total: *${results.length}*`;
+                        if (speedVal) res += ` | Speed: *${speedLabel}*`;
+                        res += `\n━━━━━━━━━━━━━━━━━━━━\n`;
                         for (const r of ok) {
-                            res += `🔊 *${r.name}*\n`;
-                            res += `   Tipe     : Audio\n`;
-                            res += `   ID Lama  : ${r.id}\n`;
-                            res += `   ID Baru  : \`${r.new_id}\`\n`;
-                            if (speedVal) {
-                                res += `   Speed    : ${SPEED_OPTIONS[choice]?.label}\n`;
-                                res += `   In-Game  : Set PlaybackSpeed = *${SPEED_OPTIONS[choice]?.rec}* (Suara Normal & Jernih)\n`;
-                            } else {
-                                res += `   Mode     : 100% Suara Asli Jernih (Lossless)\n`;
-                                res += `   In-Game  : PlaybackSpeed = *1.00x* (Default)\n`;
-                            }
-                            res += `\n`;
+                            const creator = r.creator ? ` | 👤 ${r.creator}` : '';
+                            res += `🔊 *${r.name}* | \`${r.id}\` → \`${r.new_id}\`${creator}\n`;
                         }
                         for (const r of fail) {
-                            res += `❌ ID ${r.id} (${r.name || 'Unknown'}): ${r.error || 'Gagal spoof'}\n\n`;
+                            res += `❌ \`${r.id}\` (${r.name || 'Unknown'}): ${r.error || 'Gagal'}\n`;
                         }
 
                         const user = getUser(nomor);
                         const sisa = (isOwner || user.role === 'vip') ? 'Unlimited ♾️' : `${user.quota.limit - user.quota.used}x`;
+                        res += `━━━━━━━━━━━━━━━━━━━━\n`;
+                        if (speedVal) res += `📻 In-Game: Set PlaybackSpeed = *${recPlayback}*\n`;
                         res += `📦 Sisa kuota: ${sisa}`;
                         await reply(res.trim(), 2000);
                     } catch (e) {

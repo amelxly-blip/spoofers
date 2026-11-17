@@ -350,32 +350,41 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
             }
 
             let successCount = 0;
-            const embed = new EmbedBuilder()
-                .setColor('#2ecc71')
-                .setTitle('🔥 HASIL SPOOF ASSET ROBLOX')
-                .setTimestamp();
+            const TYPE_EMOJI = {
+                'Audio': '🔊', 'Animation': '🎬', 'Decal': '🖼️',
+                'Image': '🖼️', 'Model': '📦', 'Mesh': '📦',
+                'MeshPart': '📦', 'Plugin': '🔧', 'Video': '🎥',
+            };
 
+            const lines = [];
             for (const item of results) {
                 if (item.ok && item.new_id) {
                     successCount++;
-                    const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
-                    let valText = `• **ID Asli:** \`${item.id}\`\n• **ID Baru:** \`${item.new_id}\``;
-                    if (assetType === 'audio') {
-                        valText += `\n• **Speed Bypass:** \`${speedVal}x\` (High Pitch)\n• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed)*`;
+                    const emoji = TYPE_EMOJI[item.type] || '📄';
+                    const creator = item.creator ? ` | 👤 ${item.creator}` : '';
+                    let line = `${emoji} **${item.name || 'Asset'}** | \`${item.id}\` → \`${item.new_id}\`${creator}`;
+                    if (assetType === 'audio' && speedVal) {
+                        const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
+                        line += ` | 🎚️ ${speedVal}x (In-Game: \`${recPlayback}x\`)`;
                     } else if (assetType === 'animation') {
-                        valText += `\n• **Status:** \`Permissions Write Activated (Dance Ready)\``;
+                        line += ` | ✔ Permissions Write`;
                     }
-                    embed.addFields({
-                        name: `✅ ${item.name || 'Asset'} (${item.type || assetType.toUpperCase()})`,
-                        value: valText
-                    });
+                    lines.push(line);
                 } else {
-                    embed.addFields({
-                        name: `❌ Gagal: ID ${item.id}`,
-                        value: `Error: ${item.error || 'Gagal diproses'}`
-                    });
+                    lines.push(`❌ \`${item.id}\` (${item.name || 'Unknown'}): ${item.error || 'Gagal diproses'}`);
                 }
             }
+
+            const okCount = results.filter(r => r.ok).length;
+            const failCount = results.length - okCount;
+            const summary = `Berhasil: **${okCount}** | Gagal: **${failCount}** | Total: **${results.length}**`;
+            const description = summary + '\n' + '─'.repeat(32) + '\n' + lines.join('\n');
+
+            const embed = new EmbedBuilder()
+                .setColor('#2ecc71')
+                .setTitle('🔥 HASIL SPOOF ASSET ROBLOX')
+                .setDescription(description)
+                .setTimestamp();
 
             if (successCount > 0 && !isVip) {
                 users.useQuota(discordId, successCount);
