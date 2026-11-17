@@ -143,7 +143,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('ytupload')
-        .setDescription('Unduh audio dari YouTube (320kbps) & upload ke Roblox (bisa multi link pisah koma)')
+        .setDescription('Unduh audio YouTube (320kbps) & bypass speed/pitch ke Roblox')
         .addStringOption(opt =>
             opt.setName('url')
                 .setDescription('Link video YouTube (bisa beberapa link dipisah koma/spasi)')
@@ -151,11 +151,17 @@ const commands = [
         )
         .addStringOption(opt =>
             opt.setName('speed')
-                .setDescription('Speed bypass audio (opsional)')
+                .setDescription('Pilih Speed & Pitch bypass audio (atur PlaybackSpeed in-game)')
+                .setRequired(true)
                 .addChoices(
-                    { name: '1.0x (Normal)', value: '1.0' },
-                    { name: '1.5x (⭐ Recommended)', value: '1.5' },
-                    { name: '2.0x (Bypass Cepat)', value: '2.0' }
+                    { name: '1.5x (⭐ Recommended - Pitch Naik - Playback 0.67x)', value: '1.5' },
+                    { name: '2.0x (⚡ Bypass Cepat - High Pitch - Playback 0.50x)', value: '2.0' },
+                    { name: '1.0x (Normal - Asli tanpa bypass / pitch tetap)', value: '1.0' },
+                    { name: '1.2x (Pitch Ringan - Playback 0.83x)', value: '1.2' },
+                    { name: '1.8x (Pitch Tinggi - Playback 0.56x)', value: '1.8' },
+                    { name: '2.3x (Pitch Ekstrem - Playback 0.43x)', value: '2.3' },
+                    { name: '2.5x (Bypass Ekstrem - Playback 0.40x)', value: '2.5' },
+                    { name: '3.0x (Bypass Max - Playback 0.33x)', value: '3.0' }
                 )
         ),
 
@@ -689,9 +695,16 @@ client.on('interactionCreate', async (interaction) => {
                         const res = await runYTUpload(currentUrl, userObj.api_key, userObj.user_id, speedVal);
                         if (res && res.success && res.asset_id) {
                             successCount++;
+                            const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
                             embed.addFields({
                                 name: `✅ ${res.title || `Audio #${i + 1}`}`,
-                                value: `• **Asset ID Baru:** \`${res.asset_id}\`\n• **Speed:** \`${speedVal}x\`\n• **Link:** [YouTube Link](${currentUrl})`
+                                value: (
+                                    `• **Asset ID Baru:** \`${res.asset_id}\`\n` +
+                                    `• **Speed & Pitch:** \`${speedVal}x\` (High Pitch Bypass)\n` +
+                                    `• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed di Studio)*\n` +
+                                    `• **Kualitas:** \`320kbps HD\`\n` +
+                                    `• **Link:** [Buka YouTube](${currentUrl})`
+                                )
                             });
                         } else {
                             embed.addFields({
