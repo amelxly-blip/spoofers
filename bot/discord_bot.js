@@ -38,10 +38,29 @@ if (!BOT_TOKEN) {
 
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.Guilds
     ]
+});
+
+// Tangani error client dan shard agar bot tidak crash tanpa jejak
+client.on('error', (err) => {
+    console.error('[Discord Client Error]', err);
+});
+
+client.on('shardError', (error, shardId) => {
+    console.error(`[Discord Shard Error] Shard ${shardId}:`, error);
+});
+
+client.on('shardDisconnect', (event, shardId) => {
+    console.warn(`[Discord Disconnected] Shard ${shardId} code ${event.code}: ${event.reason}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('[Unhandled Rejection]', reason);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('[Uncaught Exception]', err);
 });
 
 // ==========================================
@@ -150,17 +169,16 @@ const commands = [
 // ==========================================
 // REGISTER SLASH COMMANDS
 // ==========================================
-async function registerCommands() {
+async function registerCommands(appId) {
     const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
     try {
-        console.log('[Discord] Refreshing application (/) commands...');
-        if (CLIENT_ID) {
-            await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-        } else {
-            const currentUser = await rest.get(Routes.user());
-            CLIENT_ID = currentUser.id;
-            await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
+        const targetId = appId || CLIENT_ID || client.user?.id;
+        if (!targetId) {
+            console.warn('[Discord] Application ID belum siap, lewati registrasi...');
+            return;
         }
+        console.log(`[Discord] Refreshing application (/) commands for App ID: ${targetId}...`);
+        await rest.put(Routes.applicationCommands(targetId), { body: commands });
         console.log('[Discord] Successfully reloaded application (/) commands!');
     } catch (err) {
         console.error('[Discord] Error registering commands:', err);
@@ -182,8 +200,8 @@ async function fetchRobloxUser(userId) {
 // CLIENT EVENTS
 // ==========================================
 client.once('ready', async () => {
-    console.log(`[Discord] Bot online as ${client.user.tag}!`);
-    await registerCommands();
+    console.log(`[Discord] Bot online as ${client.user.tag}! (ID: ${client.user.id})`);
+    await registerCommands(client.user.id);
     client.user.setActivity('/spoof | /setup', { type: 2 });
 });
 
