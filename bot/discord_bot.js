@@ -153,10 +153,14 @@ async function registerCommands(appId) {
             return;
         }
         console.log(`[Discord] Refreshing application (/) commands for App ID: ${targetId}...`);
-        // 1. Registrasi Global Commands
-        await rest.put(Routes.applicationCommands(targetId), { body: commands });
+        // 1. Bersihkan global commands agar tidak duplikat dengan guild commands
+        try {
+            await rest.put(Routes.applicationCommands(targetId), { body: [] });
+        } catch (e) {
+            console.warn('[Discord] Global commands clear error:', e.message);
+        }
 
-        // 2. Registrasi Guild Commands agar langsung muncul detik itu juga (0 delay)
+        // 2. Registrasi Guild Commands agar langsung muncul detik itu juga (0 delay) dan tidak double
         if (client.guilds && client.guilds.cache.size > 0) {
             for (const [guildId, guild] of client.guilds.cache) {
                 try {

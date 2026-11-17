@@ -90,9 +90,11 @@ async def get_asset_details(session, aid, headers):
 async def download_asset(session, aid, save_dir):
     headers = make_headers(COOKIE)
     places_to_try = list(PLACE_CACHE)
+
+    # 1. Coba download langsung tanpa place id
     try:
-        url = f"https://assetdelivery.roblox.com/v2/assetId/{aid}/version/1"
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
+        url = f"https://assetdelivery.roblox.com/v2/assetId/{aid}"
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as r:
             if r.status == 200:
                 data = await r.json(content_type=None)
                 locations = data.get("locations", [])
@@ -105,46 +107,81 @@ async def download_asset(session, aid, save_dir):
                                 p = os.path.join(save_dir, f"asset_{aid}.rbxm")
                                 with open(p, "wb") as f: f.write(content)
                                 return {"success": True, "file_path": p}
-            elif r.status == 429: await asyncio.sleep(3)
+            elif r.status == 429: await asyncio.sleep(2)
     except: pass
 
+    # 2. Ambil informasi Creator & Games untuk bypass Roblox-Place-Id
     c_type, c_id = None, None
     try:
-        async with session.get(f'https://economy.roblox.com/v1/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+        async with session.get(f'https://economy.roblox.com/v2/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
             if r.status == 200:
                 d = await r.json(content_type=None)
-                c_type = d.get('Creator', {}).get('CreatorType')
-                c_id = d.get('Creator', {}).get('CreatorTargetId')
+                c_data = d.get('Creator', {})
+                c_type = c_data.get('CreatorType')
+                c_id = c_data.get('CreatorTargetId') or c_data.get('Id')
     except: pass
 
-    if c_type == "User":
+    if not c_type or not c_id:
         try:
-            async with session.get(f"https://games.roblox.com/v2/users/{c_id}/games?accessFilter=Public&limit=10&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+            async with session.get(f'https://economy.roblox.com/v1/assets/{aid}/details', headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
-                    for g in (await r.json(content_type=None)).get('data', []):
-                        if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
-        except: pass
-    elif c_type == "Group":
-        try:
-            async with session.get(f"https://games.roblox.com/v2/groups/{c_id}/games?accessFilter=Public&limit=10&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
-                if r.status == 200:
-                    for g in (await r.json(content_type=None)).get('data', []):
-                        if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
+                    d = await r.json(content_type=None)
+                    c_data = d.get('Creator', {})
+                    c_type = c_data.get('CreatorType')
+                    c_id = c_data.get('CreatorTargetId') or c_data.get('Id')
         except: pass
 
+    if c_type == "User" and c_id:
+        try:
+            async with session.get(f"https://games.roblox.com/v2/users/{c_id}/games?accessFilter=Public&limit=25&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status == 200:
+                    for g in (await r.json(content_type=None)).get('data', []):
+                        if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
+        except: pass
+    elif c_type == "Group" and c_id:
+        for f_param in ["accessFilter=1", "accessFilter=All", "accessFilter=Public"]:
+            try:
+                async with session.get(f"https://games.roblox.com/v2/groups/{c_id}/games?{f_param}&limit=25&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+                    if r.status == 200:
+                        for g in (await r.json(content_type=None)).get('data', []):
+                            if g.get('rootPlace', {}).get('id'): places_to_try.insert(0, g['rootPlace']['id'])
+                        break
+            except: pass
+
+    # 3. Coba bypass dengan semua place id (v2 CDN & v1 fallback)
     for pid in places_to_try:
         spoof_headers = headers.copy()
         spoof_headers["Roblox-Place-Id"] = str(pid)
+
+        # Coba v2 CDN dengan Place ID
         try:
-            async with session.get(f"https://assetdelivery.roblox.com/v1/asset/?id={aid}", headers=spoof_headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
+            async with session.get(f"https://assetdelivery.roblox.com/v2/assetId/{aid}", headers=spoof_headers, timeout=aiohttp.ClientTimeout(total=20)) as r:
+                if r.status == 200:
+                    data = await r.json(content_type=None)
+                    locations = data.get("locations", [])
+                    if locations and locations[0].get("location"):
+                        cdn_url = locations[0]["location"]
+                        async with session.get(cdn_url, headers={"User-Agent": "Roblox/WinInet"}, timeout=aiohttp.ClientTimeout(total=60)) as cdn_r:
+                            if cdn_r.status == 200:
+                                content = await cdn_r.read()
+                                if content and len(content) > 100:
+                                    p = os.path.join(save_dir, f"asset_{aid}.rbxm")
+                                    with open(p, "wb") as f: f.write(content)
+                                    return {"success": True, "file_path": p}
+        except: pass
+
+        # Coba v1 Direct dengan Place ID
+        try:
+            async with session.get(f"https://assetdelivery.roblox.com/v1/asset/?id={aid}", headers=spoof_headers, timeout=aiohttp.ClientTimeout(total=20)) as r:
                 if r.status == 200:
                     content = await r.read()
-                    if content and len(content) > 100:
+                    if content and len(content) > 100 and not content.startswith(b'{"errors"'):
                         p = os.path.join(save_dir, f"asset_{aid}.rbxm")
                         with open(p, "wb") as f: f.write(content)
                         return {"success": True, "file_path": p}
-                elif r.status == 429: await asyncio.sleep(3)
+                elif r.status == 429: await asyncio.sleep(2)
         except: pass
+
     return {"success": False, "error": "Bypass Gagal (Private/Rate Limit)"}
 
 async def upload_asset(session, file_path, key, target_id, asset_name, asset_type):
