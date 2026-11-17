@@ -308,6 +308,7 @@ async def main():
     api_key = input_data['api_key']
     user_id = input_data['user_id']
     speed_val = input_data.get('speed_val')
+    workers = min(int(input_data.get('workers', 3)), 5)  # max 5 agar aman rate limit
     raw_type = (input_data.get('asset_type') or 'auto').lower().strip()
     if raw_type in ('animation', 'anim'):
         chosen_type = 'Animation'
@@ -319,15 +320,15 @@ async def main():
         chosen_type = 'auto'
     save_dir = os.path.join(DL_DIR, str(user_id))
     os.makedirs(save_dir, exist_ok=True)
-    results = []
-    connector = aiohttp.TCPConnector(limit=10)
-    async with aiohttp.ClientSession(connector=connector) as session:
-        for aid in ids:
+
+    sem = asyncio.Semaphore(workers)
+
+    async def process_one(session, aid):
+        async with sem:
             headers = make_headers(COOKIE)
             name, creator_name, creator_id, itype = await get_asset_details(session, aid, headers)
             display_name = name if name else f"Asset_{aid}"
 
-            # Jika user memilih tipe secara eksplisit (Audio, Animation, Decal), gunakan pilihan user
             if chosen_type and chosen_type != 'auto':
                 final_type = chosen_type
             else:
@@ -335,10 +336,9 @@ async def main():
 
             res = await download_asset(session, aid, save_dir)
             if not res.get('success'):
-                results.append({'id': aid, 'ok': False, 'error': res.get('error'), 'name': display_name}); continue
+                return {'id': aid, 'ok': False, 'error': res.get('error'), 'name': display_name}
             file_path = res['file_path']
 
-            # Jika tipe masih belum diketahui, cek isi file (binary fingerprint aman tanpa syntax error)
             if not final_type:
                 try:
                     with open(file_path, 'rb') as fh:
@@ -354,7 +354,6 @@ async def main():
                 except:
                     final_type = 'Model'
 
-            # Jika nama masih belum didapat dari API publik, coba ekstrak dari metadata binary/xml file
             if not name or display_name == f"Asset_{aid}":
                 try:
                     with open(file_path, 'rb') as fh:
@@ -367,35 +366,46 @@ async def main():
                                 display_name = extracted
                 except: pass
 
-            # Jika masih belum ada, beri nama deskriptif sesuai jenisnya (misal: Audio_1234567)
             if display_name == f"Asset_{aid}":
                 t_label = final_type if final_type and final_type != 'auto' else 'Asset'
                 display_name = f"{t_label}_{aid}"
 
-            # Speed hanya diapply ke Audio
             if final_type == 'Audio' and speed_val:
                 file_path = await process_speed(file_path, speed_val, save_dir, aid)
 
             up = await upload_asset(session, file_path, api_key, user_id, display_name, final_type)
             if not up['success']:
-                results.append({'id': aid, 'ok': False, 'error': up['error'], 'name': display_name}); continue
+                return {'id': aid, 'ok': False, 'error': up['error'], 'name': display_name}
+
             op_id = up.get('operation_id')
             if op_id:
-                for _ in range(15):
-                    await asyncio.sleep(3)
+                # Poll lebih agresif: mulai cepat, naikkan interval bertahap
+                for delay in [1.5, 2, 2.5, 3, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8]:
+                    await asyncio.sleep(delay)
                     st = await op_check(session, op_id, api_key)
                     if st['state'] == 'done':
                         new_aid = st['asset_id']
-                        if final_type == 'Animation' or final_type == 'Audio':
+                        if final_type in ('Animation', 'Audio'):
                             await grant_asset_permissions(session, new_aid, api_key, user_id)
-                        results.append({'id': aid, 'ok': True, 'new_id': new_aid, 'name': display_name, 'type': final_type, 'creator': f"{creator_name} ({creator_id})" if creator_name else None}); break
+                        try: os.remove(file_path)
+                        except: pass
+                        return {'id': aid, 'ok': True, 'new_id': new_aid, 'name': display_name, 'type': final_type, 'creator': f"{creator_name} ({creator_id})" if creator_name else None}
                     elif st['state'] == 'fail':
-                        results.append({'id': aid, 'ok': False, 'error': st['error'], 'name': display_name}); break
-                else:
-                    results.append({'id': aid, 'ok': True, 'new_id': 'pending', 'name': display_name, 'type': final_type, 'creator': f"{creator_name} ({creator_id})" if creator_name else None})
+                        try: os.remove(file_path)
+                        except: pass
+                        return {'id': aid, 'ok': False, 'error': st['error'], 'name': display_name}
+                try: os.remove(file_path)
+                except: pass
+                return {'id': aid, 'ok': True, 'new_id': 'pending', 'name': display_name, 'type': final_type, 'creator': f"{creator_name} ({creator_id})" if creator_name else None}
             try: os.remove(file_path)
             except: pass
-    print(json.dumps(results))
+            return {'id': aid, 'ok': False, 'error': 'No operation ID returned', 'name': display_name}
+
+    connector = aiohttp.TCPConnector(limit=workers * 3)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        tasks = [process_one(session, aid) for aid in ids]
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+    print(json.dumps(list(results)))
 
 asyncio.run(main())
 `;
@@ -526,10 +536,10 @@ asyncio.run(main())
 ensureSpoofRunner();
 ensureYTRunner();
 
-function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto') {
+function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto', workers = 3) {
     ensureSpoofRunner();
     return new Promise((resolve, reject) => {
-        const input = JSON.stringify({ ids, api_key: apiKey, user_id: userId, speed_val: speedVal, asset_type: assetType });
+        const input = JSON.stringify({ ids, api_key: apiKey, user_id: userId, speed_val: speedVal, asset_type: assetType, workers });
         const proc = spawn('python3', [SPOOF_SCRIPT, input]);
         let stdout = '', stderr = '';
         proc.stdout.on('data', d => stdout += d);

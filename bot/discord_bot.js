@@ -326,19 +326,69 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
     });
 
     enqueueTask(async () => {
+        const total = ids.length;
+        // Gunakan workers=4 agar cepat & tetap aman dari rate limit Roblox Open Cloud (limit 50 req/menit)
+        const WORKERS = Math.min(4, Math.max(1, total));
+        // Batch size untuk live update progress: proses sekelompok workers per batch
+        const BATCH = WORKERS;
+
+        function buildProgressBar(done, total) {
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            const filled = Math.round(pct / 10);
+            const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+            return `\`[${bar}] ${pct}% (${done}/${total})\``;
+        }
+
+        function buildProgressEmbed(done, allResults) {
+            const ok = allResults.filter(r => r.ok).length;
+            const fail = allResults.filter(r => !r.ok).length;
+            const pbar = buildProgressBar(done, total);
+            let desc = `${pbar}\n\n`;
+            desc += `⚡ **Kecepatan:** ${WORKERS} worker paralel (Cepat & Anti-Rate Limit)\n`;
+            desc += `📊 **Status:** ✅ **${ok}** berhasil  |  ❌ **${fail}** gagal  |  ⏳ **${total - done}** sisa\n\n`;
+            if (allResults.length > 0) {
+                desc += '**Progres Terakhir:**\n';
+                for (const r of allResults.slice(-5)) { // tampilkan 5 terakhir
+                    if (r.ok && r.new_id) {
+                        const creator = r.creator ? ` creator ${r.creator}` : '';
+                        desc += `• hasil spoof name \`${r.name || 'Asset'}\` id \`${r.new_id}\`${creator}\n`;
+                    } else {
+                        desc += `• ❌ \`${r.id}\`: ${r.error || 'Gagal'}\n`;
+                    }
+                }
+                if (allResults.length > 5) desc += `_...dan ${allResults.length - 5} lainnya_\n`;
+            }
+            return new EmbedBuilder()
+                .setColor('#f39c12')
+                .setTitle(`⚙️ MEMPROSES SPOOF... (${done}/${total})`)
+                .setDescription(desc)
+                .setFooter({ text: `Akun: @${userObj.roblox_username} | Speed: ${WORKERS}x Paralel` })
+                .setTimestamp();
+        }
+
         try {
-            await interaction.editReply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor('#3498db')
-                        .setTitle('⚙️ SEDANG MEMPROSES SPOOF...')
-                        .setDescription(`Mengunduh aset dari Roblox CDN via bot tumbal, bypass, & upload ke akun Roblox kamu...`)
-                ]
-            });
+            const allResults = [];
+            let doneSoFar = 0;
 
-            const results = await runSpoof(ids, userObj.api_key, userObj.user_id, speedVal, assetType);
+            // Tampilkan progress awal 0%
+            await interaction.editReply({ embeds: [buildProgressEmbed(0, [])] });
 
-            if (!results || !Array.isArray(results) || results.length === 0) {
+            // Proses per batch paralel agar bot bisa update progress live
+            for (let i = 0; i < total; i += BATCH) {
+                const chunk = ids.slice(i, i + BATCH);
+                const chunkResults = await runSpoof(chunk, userObj.api_key, userObj.user_id, speedVal, assetType, WORKERS);
+                allResults.push(...chunkResults);
+                doneSoFar += chunk.length;
+
+                // Update progress bar live setelah tiap batch selesai
+                if (doneSoFar < total) {
+                    try {
+                        await interaction.editReply({ embeds: [buildProgressEmbed(doneSoFar, allResults)] });
+                    } catch (_) {}
+                }
+            }
+
+            if (!allResults || allResults.length === 0) {
                 return interaction.editReply({
                     embeds: [
                         new EmbedBuilder()
@@ -349,42 +399,45 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
                 });
             }
 
+            // Bangun hasil final compact: 1 pesan, 1 baris per ID sesuai permintaan user
             let successCount = 0;
-            const TYPE_EMOJI = {
-                'Audio': '🔊', 'Animation': '🎬', 'Decal': '🖼️',
-                'Image': '🖼️', 'Model': '📦', 'Mesh': '📦',
-                'MeshPart': '📦', 'Plugin': '🔧', 'Video': '🎥',
-            };
-
             const lines = [];
-            for (const item of results) {
+            for (const item of allResults) {
                 if (item.ok && item.new_id) {
                     successCount++;
-                    const emoji = TYPE_EMOJI[item.type] || '📄';
-                    const creator = item.creator ? ` | 👤 ${item.creator}` : '';
-                    let line = `${emoji} **${item.name || 'Asset'}** | \`${item.id}\` → \`${item.new_id}\`${creator}`;
-                    if (assetType === 'audio' && speedVal) {
-                        const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
-                        line += ` | 🎚️ ${speedVal}x (In-Game: \`${recPlayback}x\`)`;
-                    } else if (assetType === 'animation') {
-                        line += ` | ✔ Permissions Write`;
-                    }
-                    lines.push(line);
+                    const creatorPart = (item.creator && String(item.creator).trim()) ? ` creator ${item.creator}` : '';
+                    lines.push(`hasil spoof name ${item.name || 'Asset'} id ${item.new_id}${creatorPart}`);
                 } else {
-                    lines.push(`❌ \`${item.id}\` (${item.name || 'Unknown'}): ${item.error || 'Gagal diproses'}`);
+                    lines.push(`❌ gagal id ${item.id} (${item.name || 'Unknown'}): ${item.error || 'Gagal diproses'}`);
                 }
             }
 
-            const okCount = results.filter(r => r.ok).length;
-            const failCount = results.length - okCount;
-            const summary = `Berhasil: **${okCount}** | Gagal: **${failCount}** | Total: **${results.length}**`;
-            const description = summary + '\n' + '─'.repeat(32) + '\n' + lines.join('\n');
+            const okCount = allResults.filter(r => r.ok).length;
+            const failCount = allResults.length - okCount;
+            const summary = `Berhasil: **${okCount}** | Gagal: **${failCount}** | Total: **${allResults.length}**`;
+            const listText = lines.join('\n');
+            const description = summary + '\n' + '─'.repeat(32) + '\n' + listText;
 
             const embed = new EmbedBuilder()
                 .setColor('#2ecc71')
                 .setTitle('🔥 HASIL SPOOF ASSET ROBLOX')
-                .setDescription(description)
+                .setDescription(description.length <= 4000 ? description : (description.slice(0, 3950) + '\n...dan seterusnya'))
                 .setTimestamp();
+
+            if (assetType === 'audio' && speedVal) {
+                const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
+                embed.addFields({
+                    name: '⚙️ Setting In-Game',
+                    value: `• **Speed Bypass:** \`${speedVal}x\` (High Pitch)\n• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed)*`,
+                    inline: true
+                });
+            } else if (assetType === 'animation') {
+                embed.addFields({
+                    name: '⚙️ Permissions',
+                    value: '`Permissions Write Activated (Dance Ready)`',
+                    inline: true
+                });
+            }
 
             if (successCount > 0 && !isVip) {
                 users.useQuota(discordId, successCount);
@@ -393,7 +446,13 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
             const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - successCount)}/10`;
             embed.setFooter({ text: `Akun: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
 
-            await interaction.editReply({ embeds: [embed] });
+            // Kirim listText di content (jika muat <= 1900 karakter) agar user bisa langsung 1-klik copy tanpa cape nyalin satu-satu
+            const replyOptions = { embeds: [embed] };
+            if (listText.length <= 1900) {
+                replyOptions.content = listText;
+            }
+
+            await interaction.editReply(replyOptions);
 
         } catch (err) {
             console.error('[Spoof Error]', err);
