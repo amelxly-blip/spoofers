@@ -149,17 +149,23 @@ async def download_asset(session, aid, save_dir):
 
 async def upload_asset(session, file_path, key, target_id, asset_name, asset_type):
     fname = os.path.basename(file_path)
-    upload_type = asset_type or "Model"
+    t_lower = (str(asset_type) if asset_type else "").lower().strip()
 
-    if upload_type == "Animation":
+    if t_lower in ("animation", "anim"):
+        upload_type = "Animation"
         ctype = "model/x-rbxm"
-    elif fname.endswith('.mp3') or fname.endswith('.ogg') or fname.endswith('.wav'):
-        ctype = "audio/mpeg"
+    elif t_lower == "audio" or fname.endswith(('.mp3', '.ogg', '.wav')):
         upload_type = "Audio"
-    elif upload_type == "Decal":
+        ctype = "audio/mpeg"
+    elif t_lower == "decal" or fname.endswith(('.png', '.jpg', '.jpeg')):
+        upload_type = "Decal"
         ctype = "image/png"
+    elif t_lower == "model":
+        upload_type = "Model"
+        ctype = "model/x-rbxm"
     else:
-        ctype = "application/octet-stream"
+        upload_type = "Model"
+        ctype = "model/x-rbxm"
 
     req_data = {
         "assetType": upload_type,
@@ -259,7 +265,15 @@ async def main():
     api_key = input_data['api_key']
     user_id = input_data['user_id']
     speed_val = input_data.get('speed_val')
-    chosen_type = input_data.get('asset_type', 'auto')
+    raw_type = (input_data.get('asset_type') or 'auto').lower().strip()
+    if raw_type in ('animation', 'anim'):
+        chosen_type = 'Animation'
+    elif raw_type == 'audio':
+        chosen_type = 'Audio'
+    elif raw_type == 'decal':
+        chosen_type = 'Decal'
+    else:
+        chosen_type = 'auto'
     save_dir = os.path.join(DL_DIR, str(user_id))
     os.makedirs(save_dir, exist_ok=True)
     results = []
