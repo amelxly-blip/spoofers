@@ -184,7 +184,21 @@ async function registerCommands(appId) {
             return;
         }
         console.log(`[Discord] Refreshing application (/) commands for App ID: ${targetId}...`);
+        // 1. Registrasi Global Commands
         await rest.put(Routes.applicationCommands(targetId), { body: commands });
+
+        // 2. Registrasi Guild Commands agar langsung muncul detik itu juga (0 delay)
+        if (client.guilds && client.guilds.cache.size > 0) {
+            for (const [guildId, guild] of client.guilds.cache) {
+                try {
+                    await rest.put(Routes.applicationGuildCommands(targetId, guildId), { body: commands });
+                    console.log(`[Discord] Instant commands registered to guild: ${guild.name}`);
+                } catch (gErr) {
+                    console.warn(`[Discord] Failed guild commands for ${guildId}:`, gErr.message);
+                }
+            }
+        }
+
         console.log('[Discord] Successfully reloaded application (/) commands!');
     } catch (err) {
         console.error('[Discord] Error registering commands:', err);
