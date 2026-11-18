@@ -250,8 +250,7 @@ async def upload_asset(session, file_path, key, target_id, asset_name, asset_typ
         upload_type = "Model"
         ctype = "model/x-rbxm"
 
-    clean_name = re.sub(r'[^\w\s\-\.\(\)\[\]]', '', str(asset_name or ''))
-    clean_name = re.sub(r'\s+', ' ', clean_name).strip()[:35].strip()
+    clean_name = ' '.join(re.sub(r'[^a-zA-Z0-9 ]', '', str(asset_name or '')).split())[:35].strip()
     if not clean_name:
         clean_name = f"{upload_type}_Asset"
 
@@ -561,8 +560,7 @@ async def grant_asset_permissions(session, aid, key, target_id):
 
 async def upload_audio(file_path, key, target_id, title):
     fname = os.path.basename(file_path)
-    clean_title = re.sub(r'[^\w\s\-\.\(\)\[\]]', '', str(title or ''))
-    clean_title = re.sub(r'\s+', ' ', clean_title).strip()[:35].strip()
+    clean_title = ' '.join(re.sub(r'[^a-zA-Z0-9 ]', '', str(title or '')).split())[:35].strip()
     if not clean_title:
         clean_title = "Audio_Upload"
     req_data = {
