@@ -12,7 +12,8 @@ const {
     ButtonBuilder,
     ButtonStyle,
     StringSelectMenuBuilder,
-    StringSelectMenuOptionBuilder
+    StringSelectMenuOptionBuilder,
+    AttachmentBuilder
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -148,6 +149,17 @@ const commands = [
             opt.setName('game')
                 .setDescription('Link game Roblox atau Place ID (Contoh: https://roblox.com/games/4924922222)')
                 .setRequired(true)
+        )
+        .addIntegerOption(opt =>
+            opt.setName('jumlah')
+                .setDescription('Jumlah lagu yang ingin di-rip (Pilihan: 10, 25, 50, 100)')
+                .setRequired(false)
+                .addChoices(
+                    { name: '10 Lagu', value: 10 },
+                    { name: '25 Lagu (Rekomendasi)', value: 25 },
+                    { name: '50 Lagu (Map Dugem / Club)', value: 50 },
+                    { name: '100 Lagu (Maksimal Full Album)', value: 100 }
+                )
         ),
 
     new SlashCommandBuilder()
@@ -873,10 +885,22 @@ client.on('interactionCreate', async (interaction) => {
             if (!session || !session.ids) {
                 return interaction.reply({ content: '⚠️ Sesi tidak ditemukan.', ephemeral: true });
             }
-            return interaction.reply({
-                content: `📋 **Daftar ID (${session.type}):**\n\`\`\`\n${session.ids.join(', ')}\n\`\`\``,
-                ephemeral: true
-            });
+            const rawList = session.ids.join(', ');
+            if (rawList.length <= 1900) {
+                return interaction.reply({
+                    content: `📋 **Daftar ID (${session.type}) - Total ${session.ids.length} ID:**\n\`\`\`\n${rawList}\n\`\`\``,
+                    ephemeral: true
+                });
+            } else {
+                const attach = new AttachmentBuilder(Buffer.from(rawList, 'utf-8'), {
+                    name: `daftar_id_${session.type}.txt`
+                });
+                return interaction.reply({
+                    content: `📋 **Daftar ID (${session.type}) - Total ${session.ids.length} ID:**\nFile teks daftar ID terlampir:`,
+                    files: [attach],
+                    ephemeral: true
+                });
+            }
         }
 
         // E. Spoof dari Trending Hub
@@ -1177,6 +1201,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const rawGame = interaction.options.getString('game');
+        const jumlahOpt = interaction.options.getInteger('jumlah');
         const placeId = parsePlaceId(rawGame);
         if (!placeId) {
             return interaction.reply({
@@ -1187,7 +1212,7 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.deferReply();
 
-        const result = await ripGame(placeId, 'audio');
+        const result = await ripGame(placeId, 'audio', jumlahOpt);
         if (!result.success) {
             return interaction.editReply({ content: `❌ ${result.error}` });
         }
@@ -1202,9 +1227,13 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         let listText = '';
-        for (let i = 0; i < result.assets.length; i++) {
+        const previewLimit = Math.min(15, result.assets.length);
+        for (let i = 0; i < previewLimit; i++) {
             const a = result.assets[i];
             listText += `${i + 1}. **${a.name}** | ID: \`${a.id}\`\n`;
+        }
+        if (result.assets.length > previewLimit) {
+            listText += `\n_...dan **${result.assets.length - previewLimit}** lagu lainnya terlampir di file txt!_`;
         }
 
         const embed = new EmbedBuilder()
@@ -1226,15 +1255,23 @@ client.on('interactionCreate', async (interaction) => {
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId(`btn_rip_spoof:${sessionId}`)
-                .setLabel(`⚡ Spoof Semua Sound Game Ini (${result.assets.length})`)
+                .setLabel(`⚡ Spoof Semua Sound Game Ini (${result.assets.length} Lagu)`)
                 .setStyle(ButtonStyle.Success),
             new ButtonBuilder()
                 .setCustomId(`btn_rip_copy:${sessionId}`)
-                .setLabel('📋 Salin ID')
+                .setLabel(`📋 Salin Semua ID (${result.assets.length})`)
                 .setStyle(ButtonStyle.Secondary)
         );
 
-        return interaction.editReply({ embeds: [embed], components: [row] });
+        const replyPayload = { embeds: [embed], components: [row] };
+        if (result.assets.length > 15) {
+            const fullTxt = result.assets.map((a, idx) => `${idx + 1}. ${a.name} | ID: ${a.id}`).join('\n');
+            replyPayload.files = [
+                new AttachmentBuilder(Buffer.from(fullTxt, 'utf-8'), { name: `playlist_${placeId}.txt` })
+            ];
+        }
+
+        return interaction.editReply(replyPayload);
     }
 
     // === /gamesoundriperdance ===
