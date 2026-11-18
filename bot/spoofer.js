@@ -8,7 +8,7 @@ const YT_SCRIPT = path.join(os.homedir(), 'yt_uploader_runner.py');
 
 function ensureSpoofRunner() {
     const script = `
-import sys, json, asyncio, os, subprocess
+import sys, json, asyncio, os, subprocess, re
 from pathlib import Path
 import aiohttp
 
@@ -250,9 +250,14 @@ async def upload_asset(session, file_path, key, target_id, asset_name, asset_typ
         upload_type = "Model"
         ctype = "model/x-rbxm"
 
+    clean_name = re.sub(r'[^\w\s\-\.\(\)\[\]]', '', str(asset_name or ''))
+    clean_name = re.sub(r'\s+', ' ', clean_name).strip()[:35].strip()
+    if not clean_name:
+        clean_name = f"{upload_type}_Asset"
+
     req_data = {
         "assetType": upload_type,
-        "displayName": asset_name[:50],
+        "displayName": clean_name,
         "description": "Spoofed via SpooferBot",
         "creationContext": {"creator": {"userId": str(target_id)}}
     }
@@ -556,9 +561,13 @@ async def grant_asset_permissions(session, aid, key, target_id):
 
 async def upload_audio(file_path, key, target_id, title):
     fname = os.path.basename(file_path)
+    clean_title = re.sub(r'[^\w\s\-\.\(\)\[\]]', '', str(title or ''))
+    clean_title = re.sub(r'\s+', ' ', clean_title).strip()[:35].strip()
+    if not clean_title:
+        clean_title = "Audio_Upload"
     req_data = {
         "assetType": "Audio",
-        "displayName": title[:50],
+        "displayName": clean_title,
         "description": "Uploaded via SpooferBot",
         "creationContext": {"creator": {"userId": str(target_id)}}
     }
