@@ -509,6 +509,7 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
 
 async function executeYTUploadTask(interaction, session, speedVal) {
     const { discordId, urls, userObj, isVip } = session;
+    const total = urls.length;
     const position = isVip ? 'Prioritas VIP ⚡' : `${taskQueue.length + 1}`;
 
     await interaction.update({
@@ -525,61 +526,140 @@ async function executeYTUploadTask(interaction, session, speedVal) {
     });
 
     enqueueTask(async () => {
+        function buildProgressBar(done, totalCount) {
+            const pct = totalCount > 0 ? Math.round((done / totalCount) * 100) : 0;
+            const filled = Math.round(pct / 10);
+            const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
+            return `\`[${bar}] ${pct}% (${done}/${totalCount})\``;
+        }
+
+        function buildProgressEmbed(done, currentStage, allResults) {
+            const ok = allResults.filter(r => r.ok).length;
+            const fail = allResults.filter(r => !r.ok).length;
+            const pbar = buildProgressBar(done, total);
+            let desc = `${pbar}\n\n`;
+            desc += `⚡ **Speed Bypass:** \`${speedVal}x\` (High Pitch Anti-Copyright)\n`;
+            desc += `🔄 **Tahap Sekarang:** ${currentStage}\n`;
+            desc += `📊 **Status:** ✅ **${ok}** berhasil  |  ❌ **${fail}** gagal  |  ⏳ **${total - done}** sisa\n\n`;
+            if (allResults.length > 0) {
+                desc += '**Progres Terakhir:**\n';
+                for (const r of allResults.slice(-5)) {
+                    if (r.ok && r.asset_id) {
+                        desc += `• **${r.title || 'Audio'}** | ID: \`${r.asset_id}\`\n`;
+                    } else {
+                        desc += `• ❌ ${r.title || 'Audio'}: ${r.error || 'Gagal'}\n`;
+                    }
+                }
+                if (allResults.length > 5) desc += `_...dan ${allResults.length - 5} lainnya_\n`;
+            }
+            return new EmbedBuilder()
+                .setColor('#f39c12')
+                .setTitle(`⚙️ MEMPROSES YOUTUBE UPLOAD... (${done}/${total})`)
+                .setDescription(desc)
+                .setFooter({ text: `Akun Uploader: @${userObj.roblox_username} | Kualitas: 320kbps HD` })
+                .setTimestamp();
+        }
+
         try {
+            const allResults = [];
+            let doneSoFar = 0;
+
+            // Tampilkan progress awal 0%
             await interaction.editReply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setColor('#3498db')
-                        .setTitle('⚙️ SEDANG MEMPROSES YOUTUBE AUDIO (320kbps)...')
-                        .setDescription(`Mengunduh ${urls.length} audio & mengunggah ke Roblox... Harap tunggu sebentar.`)
-                ]
+                embeds: [buildProgressEmbed(0, 'Memulai download audio dari YouTube (320kbps)...', [])]
             });
 
-            let successCount = 0;
-            const embed = new EmbedBuilder()
-                .setColor('#2ecc71')
-                .setTitle('🎵 HASIL UPLOAD AUDIO YOUTUBE KE ROBLOX')
-                .setTimestamp();
-
-            for (let i = 0; i < urls.length; i++) {
+            for (let i = 0; i < total; i++) {
                 const currentUrl = urls[i];
+                const stageText = `Mengunduh audio #${i + 1} (320kbps) & upload ke Roblox...`;
+
+                // Update stage live sebelum proses URL
+                try {
+                    await interaction.editReply({
+                        embeds: [buildProgressEmbed(doneSoFar, stageText, allResults)]
+                    });
+                } catch (_) {}
+
                 try {
                     const res = await runYTUpload(currentUrl, userObj.api_key, userObj.user_id, speedVal);
                     if (res && res.success && res.asset_id) {
-                        successCount++;
-                        const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
-                        embed.addFields({
-                            name: `✅ ${res.title || `Audio #${i + 1}`}`,
-                            value: (
-                                `• **Asset ID Baru:** \`${res.asset_id}\`\n` +
-                                `• **Speed & Pitch:** \`${speedVal}x\` (High Pitch Bypass)\n` +
-                                `• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed di Studio)*\n` +
-                                `• **Kualitas:** \`320kbps HD\`\n` +
-                                `• **Link:** [Buka YouTube](${currentUrl})`
-                            )
+                        allResults.push({
+                            ok: true,
+                            asset_id: res.asset_id,
+                            title: res.title || `Audio #${i + 1}`,
+                            url: currentUrl
                         });
                     } else {
-                        embed.addFields({
-                            name: `❌ Gagal Audio #${i + 1}`,
-                            value: `• Error: ${res?.error || 'Gagal download/upload'}\n• Link: ${currentUrl}`
+                        allResults.push({
+                            ok: false,
+                            title: res?.title || `Audio #${i + 1}`,
+                            error: res?.error || 'Gagal download / upload',
+                            url: currentUrl
                         });
                     }
                 } catch (itemErr) {
-                    embed.addFields({
-                        name: `❌ Error Audio #${i + 1}`,
-                        value: `Error: ${itemErr.message}`
+                    allResults.push({
+                        ok: false,
+                        title: `Audio #${i + 1}`,
+                        error: itemErr.message || 'Error processing audio',
+                        url: currentUrl
                     });
                 }
+
+                doneSoFar++;
+
+                // Update progress bar live setelah tiap URL selesai
+                if (doneSoFar < total) {
+                    try {
+                        await interaction.editReply({
+                            embeds: [buildProgressEmbed(doneSoFar, `Selesai audio #${doneSoFar}, lanjut ke audio berikutnya...`, allResults)]
+                        });
+                    } catch (_) {}
+                }
             }
+
+            const successCount = allResults.filter(r => r.ok).length;
+            const failCount = allResults.length - successCount;
+
+            // Bangun hasil final compact: 1 pesan, 1 baris per ID
+            const lines = [];
+            for (const item of allResults) {
+                if (item.ok && item.asset_id) {
+                    lines.push(`${item.title || 'Audio'} | ID: ${item.asset_id}`);
+                } else {
+                    lines.push(`❌ Gagal: ${item.title || 'Audio'} - ${item.error || 'Gagal diproses'}`);
+                }
+            }
+
+            const recPlayback = (1.0 / parseFloat(speedVal)).toFixed(2);
+            const summary = `Berhasil: **${successCount}** | Gagal: **${failCount}** | Total: **${allResults.length}**`;
+            const listText = lines.join('\n');
+            const description = summary + '\n' + '─'.repeat(32) + '\n**📋 DAFTAR HASIL YOUTUBE UPLOAD:**\n' + listText;
+
+            const finalEmbed = new EmbedBuilder()
+                .setColor(successCount > 0 ? '#2ecc71' : '#e74c3c')
+                .setTitle('🎵 HASIL UPLOAD AUDIO YOUTUBE KE ROBLOX')
+                .setDescription(description.length <= 4000 ? description : (description.slice(0, 3950) + '\n...dan seterusnya'))
+                .addFields({
+                    name: '⚙️ Setting In-Game',
+                    value: `• **Speed Bypass:** \`${speedVal}x\` (High Pitch)\n• **Playback In-Game:** \`${recPlayback}x\` *(Atur Sound.PlaybackSpeed)*\n• **Kualitas:** \`320kbps HD\``,
+                    inline: true
+                })
+                .setTimestamp();
 
             if (successCount > 0 && !isVip) {
                 users.useQuota(discordId, successCount);
             }
 
             const sisa = isVip ? 'Unlimited' : `${Math.max(0, 10 - userObj.quota.used - successCount)}/10`;
-            embed.setFooter({ text: `Akun Uploader: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
+            finalEmbed.setFooter({ text: `Akun Uploader: @${userObj.roblox_username} | Sisa Kuota: ${sisa}` });
 
-            await interaction.editReply({ embeds: [embed] });
+            const replyOptions = { embeds: [finalEmbed] };
+            if (listText.length <= 1850) {
+                replyOptions.content = `📋 **DAFTAR HASIL YOUTUBE UPLOAD:**\n` + listText;
+            }
+
+            await interaction.editReply(replyOptions);
 
         } catch (err) {
             console.error('[YT Upload Error]', err);

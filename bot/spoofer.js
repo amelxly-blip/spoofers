@@ -481,10 +481,14 @@ DL_DIR = Path.home() / "yt_tmp_bot"
 os.makedirs(DL_DIR, exist_ok=True)
 
 def download_yt(url, save_dir, speed_val=None):
-    out_template = os.path.join(save_dir, '%(title)s.%(ext)s')
+    out_template = os.path.join(save_dir, '%(id)s.%(ext)s')
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': out_template,
+        'noplaylist': True,
+        'socket_timeout': 25,
+        'retries': 3,
+        'nocheckcertificate': True,
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
@@ -497,7 +501,8 @@ def download_yt(url, save_dir, speed_val=None):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
         title = info.get('title', 'Unknown')
-        filename = ydl.prepare_filename(info).rsplit('.', 1)[0] + '.mp3'
+        vid_id = info.get('id', 'audio')
+        filename = os.path.join(save_dir, f"{vid_id}.mp3")
         if not os.path.exists(filename):
             mp3s = [os.path.join(save_dir, f) for f in os.listdir(save_dir) if f.endswith('.mp3')]
             if mp3s:
@@ -525,6 +530,27 @@ def apply_speed(file_path, speed_val, save_dir):
             return out_path
         return file_path
     except: return file_path
+
+async def grant_asset_permissions(session, aid, key, target_id):
+    try:
+        universe_ids = []
+        try:
+            async with session.get(f"https://games.roblox.com/v2/users/{target_id}/games?accessFilter=Public&limit=50&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+                if r.status == 200:
+                    d = await r.json(content_type=None)
+                    for g in d.get('data', []):
+                        if g.get('id'): universe_ids.append(str(g['id']))
+        except: pass
+
+        if universe_ids:
+            perm_requests = [{"assetId": str(aid), "subject": {"subjectType": "Universe", "subjectId": str(uid)}, "action": "Use"} for uid in universe_ids]
+            await session.patch(
+                "https://apis.roblox.com/asset-permissions-api/v1/assets/permissions",
+                headers={"x-api-key": key, "Content-Type": "application/json"},
+                json={"requests": perm_requests},
+                timeout=aiohttp.ClientTimeout(total=15)
+            )
+    except: pass
 
 async def upload_audio(file_path, key, target_id, title):
     fname = os.path.basename(file_path)
@@ -554,7 +580,9 @@ async def upload_audio(file_path, key, target_id, title):
                                             if data.get('done'):
                                                 if data.get('error'): return {"success": False, "error": str(data['error'])}
                                                 aid = str(data.get('response', {}).get('assetId') or '')
-                                                if aid.isdigit(): return {"success": True, "asset_id": aid}
+                                                if aid.isdigit():
+                                                    await grant_asset_permissions(session, aid, key, target_id)
+                                                    return {"success": True, "asset_id": aid}
                             return {"success": False, "error": "No operation ID"}
                         body = await r.text()
                         if r.status in (429, 500, 503) and attempt < 3:
@@ -624,15 +652,28 @@ function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto', work
     });
 }
 
-function runYTUpload(url, apiKey, userId, speedVal = null) {
+function runYTUpload(url, apiKey, userId, speedVal = null, timeoutMs = 180000) {
     ensureYTRunner();
     return new Promise((resolve, reject) => {
         const input = JSON.stringify({ url, api_key: apiKey, user_id: userId, speed_val: speedVal });
         const proc = spawn('python3', [YT_SCRIPT, input]);
         let stdout = '', stderr = '';
+        let isDone = false;
+
+        const timer = setTimeout(() => {
+            if (!isDone) {
+                isDone = true;
+                try { proc.kill('SIGKILL'); } catch (_) {}
+                reject(new Error('Waktu download YouTube habis (Timeout 3 menit). Video mungkin terlalu panjang atau diblokir.'));
+            }
+        }, timeoutMs);
+
         proc.stdout.on('data', d => stdout += d);
         proc.stderr.on('data', d => stderr += d);
         proc.on('close', () => {
+            if (isDone) return;
+            isDone = true;
+            clearTimeout(timer);
             try {
                 const match = stdout.match(/\{[\s\S]*"success"[\s\S]*\}/);
                 if (match) {
