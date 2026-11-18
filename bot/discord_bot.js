@@ -20,7 +20,7 @@ const path = require('path');
 const fetch = globalThis.fetch || require('node-fetch');
 const users = require('./users');
 const { runSpoof, runYTUpload } = require('./spoofer');
-const { parsePlaceId, ripGame, getTrending } = require('./game_ripper');
+const { parsePlaceId, ripGame, getTrending, getGameDetails } = require('./game_ripper');
 
 const CONFIG_PATH = path.join(require('os').homedir(), '.bot_config');
 let BOT_TOKEN = process.env.DISCORD_TOKEN || '';
@@ -354,7 +354,13 @@ async function fetchUserAllAudios(userId, maxCount = 100, creatorType = 'User') 
         const curParam = cursor ? '&cursor=' + encodeURIComponent(cursor) : '';
         const url = `https://apis.roblox.com/toolbox-service/v1/marketplace/3?creatorId=${userId}${cParam}&num=50${curParam}`;
         try {
-            const r = await fetch(url, { headers: { 'User-Agent': 'Roblox/WinInet' } });
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            const r = await fetch(url, {
+                headers: { 'User-Agent': 'Roblox/WinInet' },
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
             if (!r.ok) break;
             const d = await r.json();
             const ids = (d.data || []).map(x => String(x.id));
@@ -387,14 +393,18 @@ async function grantAudioPermissions(apiKey, universeId, assetIds) {
         }));
 
         try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000);
             const res = await fetch('https://apis.roblox.com/asset-permissions-api/v1/assets/permissions', {
                 method: 'PATCH',
                 headers: {
                     'x-api-key': apiKey,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ requests })
+                body: JSON.stringify({ requests }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
 
             if (res.ok) {
                 totalSuccess += chunk.length;
@@ -2028,64 +2038,71 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.deferReply();
 
-        const game = await getGameDetails(placeId);
-        if (!game || !game.universeId) {
-            return interaction.editReply({
-                content: '❌ **Gagal menemukan game Roblox tersebut!** Pastikan game publik dan Place ID benar.'
-            });
-        }
-
-        let targetIds = [];
-        let isAll = false;
-
-        if (rawAssetId && rawAssetId.trim().toLowerCase() !== 'all') {
-            const matches = rawAssetId.match(/\b\d{5,16}\b/g);
-            if (matches && matches.length > 0) {
-                targetIds = [...new Set(matches)];
+        try {
+            const game = await getGameDetails(placeId);
+            if (!game || !game.universeId) {
+                return interaction.editReply({
+                    content: '❌ **Gagal menemukan game Roblox tersebut!** Pastikan game publik dan Place ID benar.'
+                });
             }
-        }
 
-        // Jika tidak memasukkan asset_id atau mengetik "all", scan SEMUA lagu akun user di Creator Hub
-        if (targetIds.length === 0) {
-            isAll = true;
-            targetIds = await fetchUserAllAudios(userObj.user_id, 100, userObj.creator_type || 'User');
-        }
+            let targetIds = [];
+            let isAll = false;
 
-        if (targetIds.length === 0) {
+            if (rawAssetId && rawAssetId.trim().toLowerCase() !== 'all') {
+                const matches = rawAssetId.match(/\b\d{5,16}\b/g);
+                if (matches && matches.length > 0) {
+                    targetIds = [...new Set(matches)];
+                }
+            }
+
+            // Jika tidak memasukkan asset_id atau mengetik "all", scan SEMUA lagu akun user di Creator Hub
+            if (targetIds.length === 0) {
+                isAll = true;
+                targetIds = await fetchUserAllAudios(userObj.user_id, 100, userObj.creator_type || 'User');
+            }
+
+            if (targetIds.length === 0) {
+                return interaction.editReply({
+                    content: `⚠️ **Tidak ada lagu yang ditemukan di akun Roblox kamu!**\nPastikan kamu sudah pernah meng-upload audio ke akun \`@${userObj.roblox_username}\`, atau masukkan ID lagu spesifik di opsi \`asset_id\`.`
+                });
+            }
+
+            const permRes = await grantAudioPermissions(userObj.api_key, game.universeId, targetIds);
+            if (!permRes.success) {
+                return interaction.editReply({
+                    content: `❌ **Gagal memberikan izin:**\n${permRes.error}`
+                });
+            }
+
+            const previewList = targetIds.slice(0, 10).map(id => `• \`${id}\``).join('  ');
+            const moreText = targetIds.length > 10 ? `\n_...dan **${targetIds.length - 10}** lagu lainnya_` : '';
+
+            const embed = new EmbedBuilder()
+                .setColor('#2ecc71')
+                .setTitle('🔊 IZIN AUDIO ROBLOX BERHASIL DIBERIKAN!')
+                .setDescription(
+                    `Semua audio yang dipilih sekarang **sudah sah & diizinkan** untuk diputar di game target tanpa error permission!\n\n` +
+                    `🎮 **Game Target:** [${game.name}](https://www.roblox.com/games/${placeId})\n` +
+                    `👤 **Developer Game:** \`${game.creator}\`\n` +
+                    `🆔 **Universe ID:** \`${game.universeId}\`  |  **Place ID:** \`${placeId}\`\n` +
+                    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                    `🎵 **Total Audio Diizinkan:** **${permRes.totalSuccess} Lagu** ${isAll ? `(Semua Lagu di ${userObj.creator_type === 'Group' ? `Group ${userObj.roblox_username}` : `Akun @${userObj.roblox_username}`})` : ''}\n` +
+                    `📋 **Daftar ID Audio:**\n${previewList}${moreText}\n\n` +
+                    `⚡ **Status In-Game:** **100% Aktif** (Lagu langsung bisa dibunyikan in-game/boombox/script)`
+                )
+                .setFooter({ text: `${userObj.creator_type === 'Group' ? '👥 Group' : '👤 Akun'}: ${userObj.roblox_username} • Fitur Eksklusif VIP` })
+                .setTimestamp();
+
+            if (game.iconUrl) embed.setThumbnail(game.iconUrl);
+
+            return interaction.editReply({ embeds: [embed] });
+        } catch (err) {
+            console.error('[GRANTMUSIC ERROR]', err);
             return interaction.editReply({
-                content: `⚠️ **Tidak ada lagu yang ditemukan di akun Roblox kamu!**\nPastikan kamu sudah pernah meng-upload audio ke akun \`@${userObj.roblox_username}\`, atau masukkan ID lagu spesifik di opsi \`asset_id\`.`
+                content: `❌ **Terjadi kesalahan saat memproses /grantmusic:**\n\`${err.message || err}\``
             });
         }
-
-        const permRes = await grantAudioPermissions(userObj.api_key, game.universeId, targetIds);
-        if (!permRes.success) {
-            return interaction.editReply({
-                content: `❌ **Gagal memberikan izin:**\n${permRes.error}`
-            });
-        }
-
-        const previewList = targetIds.slice(0, 10).map(id => `• \`${id}\``).join('  ');
-        const moreText = targetIds.length > 10 ? `\n_...dan **${targetIds.length - 10}** lagu lainnya_` : '';
-
-        const embed = new EmbedBuilder()
-            .setColor('#2ecc71')
-            .setTitle('🔊 IZIN AUDIO ROBLOX BERHASIL DIBERIKAN!')
-            .setDescription(
-                `Semua audio yang dipilih sekarang **sudah sah & diizinkan** untuk diputar di game target tanpa error permission!\n\n` +
-                `🎮 **Game Target:** [${game.name}](https://www.roblox.com/games/${placeId})\n` +
-                `👤 **Developer Game:** \`${game.creator}\`\n` +
-                `🆔 **Universe ID:** \`${game.universeId}\`  |  **Place ID:** \`${placeId}\`\n` +
-                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `🎵 **Total Audio Diizinkan:** **${permRes.totalSuccess} Lagu** ${isAll ? `(Semua Lagu di ${userObj.creator_type === 'Group' ? `Group ${userObj.roblox_username}` : `Akun @${userObj.roblox_username}`})` : ''}\n` +
-                `📋 **Daftar ID Audio:**\n${previewList}${moreText}\n\n` +
-                `⚡ **Status In-Game:** **100% Aktif** (Lagu langsung bisa dibunyikan in-game/boombox/script)`
-            )
-            .setFooter({ text: `${userObj.creator_type === 'Group' ? '👥 Group' : '👤 Akun'}: ${userObj.roblox_username} • Fitur Eksklusif VIP` })
-            .setTimestamp();
-
-        if (game.iconUrl) embed.setThumbnail(game.iconUrl);
-
-        return interaction.editReply({ embeds: [embed] });
     }
 });
 
