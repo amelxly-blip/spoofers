@@ -1252,13 +1252,23 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        // D. Salin ID dari Game Ripper
+        // D. Salin ID dari Game Ripper (VIP ONLY)
         if (customId.startsWith('btn_rip_copy:')) {
             const sessionId = customId.split(':')[1];
             const session = pendingSessions.get(sessionId);
             if (!session || !session.ids) {
                 return interaction.reply({ content: '⚠️ Sesi tidak ditemukan.', ephemeral: true });
             }
+            if (interaction.user.id !== session.discordId) {
+                return interaction.reply({ content: '⛔ Hanya pengguna yang menjalankan perintah ini yang dapat memilih.', ephemeral: true });
+            }
+
+            // VIP check — fitur salin ID juga eksklusif VIP
+            const checkCopy = users.canUse(interaction.user.id);
+            if (checkCopy.role !== 'vip') {
+                return sendVipOnlyReply(interaction);
+            }
+
             const rawList = session.ids.join(', ');
             if (rawList.length <= 1900) {
                 return interaction.reply({
