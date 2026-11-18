@@ -230,7 +230,7 @@ async def download_asset(session, aid, save_dir, source_place_id=None):
 
     return {"success": False, "error": "Bypass Gagal (Private/Rate Limit)"}
 
-async def upload_asset(session, file_path, key, target_id, asset_name, asset_type):
+async def upload_asset(session, file_path, key, target_id, asset_name, asset_type, creator_type='User'):
     fname = os.path.basename(file_path)
     t_lower = (str(asset_type) if asset_type else "").lower().strip()
 
@@ -254,11 +254,14 @@ async def upload_asset(session, file_path, key, target_id, asset_name, asset_typ
     if not clean_name:
         clean_name = f"{upload_type}_Asset"
 
+    c_type_clean = str(creator_type or 'User').strip().lower()
+    creator_target = {"groupId": str(target_id)} if c_type_clean == 'group' else {"userId": str(target_id)}
+
     req_data = {
         "assetType": upload_type,
         "displayName": clean_name,
         "description": "Spoofed via SpooferBot",
-        "creationContext": {"creator": {"userId": str(target_id)}}
+        "creationContext": {"creator": creator_target}
     }
     for attempt in range(1, 4):
         try:
@@ -289,11 +292,13 @@ async def op_check(session, op_id, key):
     if aid.isdigit(): return {'state': 'done', 'asset_id': aid}
     return {'state': 'fail', 'error': 'No ID'}
 
-async def grant_asset_permissions(session, aid, key, target_id):
+async def grant_asset_permissions(session, aid, key, target_id, creator_type='User'):
     try:
         universe_ids = []
+        c_type_clean = str(creator_type or 'User').strip().lower()
+        games_url = f"https://games.roblox.com/v2/groups/{target_id}/games?accessFilter=Public&limit=50&sortOrder=Asc" if c_type_clean == 'group' else f"https://games.roblox.com/v2/users/{target_id}/games?accessFilter=Public&limit=50&sortOrder=Asc"
         try:
-            async with session.get(f"https://games.roblox.com/v2/users/{target_id}/games?accessFilter=Public&limit=50&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+            async with session.get(games_url, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
                     d = await r.json(content_type=None)
                     for g in d.get('data', []):
@@ -365,6 +370,7 @@ async def main():
     ids = input_data['ids']
     api_key = input_data['api_key']
     user_id = input_data['user_id']
+    creator_type = input_data.get('creator_type', 'User')
     speed_val = input_data.get('speed_val')
     source_place_id = input_data.get('source_place_id')
     workers = min(int(input_data.get('workers', 3)), 5)  # max 5 agar aman rate limit
@@ -432,7 +438,7 @@ async def main():
             if final_type == 'Audio':
                 file_path = await process_speed_or_convert(file_path, speed_val, save_dir, aid, is_audio=True)
 
-            up = await upload_asset(session, file_path, api_key, user_id, display_name, final_type)
+            up = await upload_asset(session, file_path, api_key, user_id, display_name, final_type, creator_type)
             if not up['success']:
                 return {'id': aid, 'ok': False, 'error': up['error'], 'name': display_name}
 
@@ -444,7 +450,7 @@ async def main():
                     if st['state'] == 'done':
                         new_aid = st['asset_id']
                         if final_type in ('Animation', 'Audio'):
-                            await grant_asset_permissions(session, new_aid, api_key, user_id)
+                            await grant_asset_permissions(session, new_aid, api_key, user_id, creator_type)
                         try: os.remove(file_path)
                         except: pass
                         return {'id': aid, 'ok': True, 'new_id': new_aid, 'name': display_name, 'type': final_type, 'creator': creator_name if creator_name else None}
@@ -537,11 +543,13 @@ def apply_speed(file_path, speed_val, save_dir):
         return file_path
     except: return file_path
 
-async def grant_asset_permissions(session, aid, key, target_id):
+async def grant_asset_permissions(session, aid, key, target_id, creator_type='User'):
     try:
         universe_ids = []
+        c_type_clean = str(creator_type or 'User').strip().lower()
+        games_url = f"https://games.roblox.com/v2/groups/{target_id}/games?accessFilter=Public&limit=50&sortOrder=Asc" if c_type_clean == 'group' else f"https://games.roblox.com/v2/users/{target_id}/games?accessFilter=Public&limit=50&sortOrder=Asc"
         try:
-            async with session.get(f"https://games.roblox.com/v2/users/{target_id}/games?accessFilter=Public&limit=50&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
+            async with session.get(games_url, timeout=aiohttp.ClientTimeout(total=10)) as r:
                 if r.status == 200:
                     d = await r.json(content_type=None)
                     for g in d.get('data', []):
@@ -558,16 +566,18 @@ async def grant_asset_permissions(session, aid, key, target_id):
             )
     except: pass
 
-async def upload_audio(file_path, key, target_id, title):
+async def upload_audio(file_path, key, target_id, title, creator_type='User'):
     fname = os.path.basename(file_path)
     clean_title = ' '.join(re.sub(r'[^a-zA-Z0-9 ]', '', str(title or '')).split())[:35].strip()
     if not clean_title:
         clean_title = "Audio_Upload"
+    c_type_clean = str(creator_type or 'User').strip().lower()
+    creator_target = {"groupId": str(target_id)} if c_type_clean == 'group' else {"userId": str(target_id)}
     req_data = {
         "assetType": "Audio",
         "displayName": clean_title,
         "description": "Uploaded via SpooferBot",
-        "creationContext": {"creator": {"userId": str(target_id)}}
+        "creationContext": {"creator": creator_target}
     }
     connector = aiohttp.TCPConnector()
     async with aiohttp.ClientSession(connector=connector) as session:
@@ -606,6 +616,7 @@ async def main():
     url = input_data['url']
     api_key = input_data['api_key']
     user_id = input_data['user_id']
+    creator_type = input_data.get('creator_type', 'User')
     speed_val = input_data.get('speed_val')
     save_dir = str(DL_DIR / str(user_id))
     os.makedirs(save_dir, exist_ok=True)
@@ -613,7 +624,7 @@ async def main():
         file_path, title = download_yt(url, save_dir, speed_val)
         if speed_val:
             file_path = apply_speed(file_path, speed_val, save_dir)
-        result = await upload_audio(file_path, api_key, user_id, title)
+        result = await upload_audio(file_path, api_key, user_id, title, creator_type)
         result['title'] = title
         try:
             if os.path.exists(file_path):
@@ -631,7 +642,7 @@ asyncio.run(main())
 ensureSpoofRunner();
 ensureYTRunner();
 
-function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto', workers = 3, sourcePlaceId = null) {
+function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto', workers = 3, sourcePlaceId = null, creatorType = 'User') {
     ensureSpoofRunner();
     return new Promise((resolve, reject) => {
         const input = JSON.stringify({
@@ -641,7 +652,8 @@ function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto', work
             speed_val: speedVal,
             asset_type: assetType,
             workers,
-            source_place_id: sourcePlaceId
+            source_place_id: sourcePlaceId,
+            creator_type: creatorType
         });
         const proc = spawn('python3', [SPOOF_SCRIPT, input]);
         let stdout = '', stderr = '';
@@ -661,10 +673,10 @@ function runSpoof(ids, apiKey, userId, speedVal = null, assetType = 'auto', work
     });
 }
 
-function runYTUpload(url, apiKey, userId, speedVal = null, timeoutMs = 180000) {
+function runYTUpload(url, apiKey, userId, speedVal = null, timeoutMs = 180000, creatorType = 'User') {
     ensureYTRunner();
     return new Promise((resolve, reject) => {
-        const input = JSON.stringify({ url, api_key: apiKey, user_id: userId, speed_val: speedVal });
+        const input = JSON.stringify({ url, api_key: apiKey, user_id: userId, speed_val: speedVal, creator_type: creatorType });
         const proc = spawn('python3', [YT_SCRIPT, input]);
         let stdout = '', stderr = '';
         let isDone = false;

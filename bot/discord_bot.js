@@ -110,7 +110,16 @@ function enqueueTask(taskFn, isVip = false) {
 const commands = [
     new SlashCommandBuilder()
         .setName('setup')
-        .setDescription('Hubungkan akun Roblox (API Key & User ID) secara aman & private'),
+        .setDescription('Hubungkan akun Roblox uploader (Akun Pribadi atau Komunitas/Group)')
+        .addStringOption(opt =>
+            opt.setName('tipe')
+                .setDescription('Pilih target uploader: Akun Pribadi atau Komunitas/Group')
+                .setRequired(false)
+                .addChoices(
+                    { name: '👤 Akun Pribadi (User ID)', value: 'user' },
+                    { name: '👥 Komunitas / Group Roblox (Group ID)', value: 'group' }
+                )
+        ),
 
     new SlashCommandBuilder()
         .setName('spoof')
@@ -281,14 +290,78 @@ async function fetchRobloxUser(userId) {
     return null;
 }
 
-// Helper fetch all audio assets owned by a Roblox user
-async function fetchUserAllAudios(userId, maxCount = 100) {
+// Helper fetch Roblox group profile
+async function fetchRobloxGroup(groupId) {
+    try {
+        const res = await fetch(`https://groups.roblox.com/v1/groups/${groupId}`, { timeout: 8000 });
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch {}
+    return null;
+}
+
+function buildUserSetupModal() {
+    const modal = new ModalBuilder()
+        .setCustomId('modal_setup_user')
+        .setTitle('SETUP AKUN ROBLOX PRIBADI');
+
+    const apiKeyInput = new TextInputBuilder()
+        .setCustomId('input_api_key')
+        .setLabel('Roblox Open Cloud API Key')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Paste API Key Creator Hub di sini...')
+        .setRequired(true);
+
+    const userIdInput = new TextInputBuilder()
+        .setCustomId('input_user_id')
+        .setLabel('Roblox User ID Anda')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Contoh: 123456789 (Hanya angka)')
+        .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(apiKeyInput),
+        new ActionRowBuilder().addComponents(userIdInput)
+    );
+    return modal;
+}
+
+function buildGroupSetupModal() {
+    const modal = new ModalBuilder()
+        .setCustomId('modal_setup_group')
+        .setTitle('SETUP GROUP / KOMUNITAS ROBLOX');
+
+    const apiKeyInput = new TextInputBuilder()
+        .setCustomId('input_api_key')
+        .setLabel('Roblox Open Cloud API Key')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Paste API Key Creator Hub di sini...')
+        .setRequired(true);
+
+    const groupIdInput = new TextInputBuilder()
+        .setCustomId('input_group_id')
+        .setLabel('Roblox Group ID (Komunitas)')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Contoh: 1200769 (Hanya angka)')
+        .setRequired(true);
+
+    modal.addComponents(
+        new ActionRowBuilder().addComponents(apiKeyInput),
+        new ActionRowBuilder().addComponents(groupIdInput)
+    );
+    return modal;
+}
+
+// Helper fetch all audio assets owned by a Roblox user or group
+async function fetchUserAllAudios(userId, maxCount = 100, creatorType = 'User') {
     if (!userId) return [];
     let allIds = [];
     let cursor = '';
+    const cParam = String(creatorType).toLowerCase() === 'group' ? '&creatorType=Group' : '';
     while (allIds.length < maxCount) {
         const curParam = cursor ? '&cursor=' + encodeURIComponent(cursor) : '';
-        const url = `https://apis.roblox.com/toolbox-service/v1/marketplace/3?creatorId=${userId}&num=50${curParam}`;
+        const url = `https://apis.roblox.com/toolbox-service/v1/marketplace/3?creatorId=${userId}${cParam}&num=50${curParam}`;
         try {
             const r = await fetch(url, { headers: { 'User-Agent': 'Roblox/WinInet' } });
             if (!r.ok) break;
@@ -529,11 +602,12 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
                 }
                 if (allResults.length > 5) desc += `_...dan ${allResults.length - 5} lainnya_\n`;
             }
+            const uploaderLabel = userObj.creator_type === 'Group' ? `👥 Group: ${userObj.roblox_username}` : `@${userObj.roblox_username}`;
             return new EmbedBuilder()
                 .setColor('#f39c12')
                 .setTitle(`⚙️ MEMPROSES SPOOF... (${done}/${total})`)
                 .setDescription(desc)
-                .setFooter({ text: `Akun: @${userObj.roblox_username} | Speed: ${WORKERS}x Paralel` })
+                .setFooter({ text: `Akun: ${uploaderLabel} | Speed: ${WORKERS}x Paralel` })
                 .setTimestamp();
         }
 
@@ -547,7 +621,7 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
             // Proses per batch paralel agar bot bisa update progress live
             for (let i = 0; i < total; i += BATCH) {
                 const chunk = ids.slice(i, i + BATCH);
-                const chunkResults = await runSpoof(chunk, userObj.api_key, userObj.user_id, speedVal, assetType, WORKERS, session.sourcePlaceId);
+                const chunkResults = await runSpoof(chunk, userObj.api_key, userObj.user_id, speedVal, assetType, WORKERS, session.sourcePlaceId, userObj.creator_type || 'User');
                 allResults.push(...chunkResults);
                 doneSoFar += chunk.length;
 
@@ -679,11 +753,12 @@ async function executeYTUploadTask(interaction, session, speedVal) {
                 }
                 if (allResults.length > 5) desc += `_...dan ${allResults.length - 5} lainnya_\n`;
             }
+            const uploaderLabel = userObj.creator_type === 'Group' ? `👥 Group: ${userObj.roblox_username}` : `@${userObj.roblox_username}`;
             return new EmbedBuilder()
                 .setColor('#f39c12')
                 .setTitle(`⚙️ MEMPROSES YOUTUBE UPLOAD... (${done}/${total})`)
                 .setDescription(desc)
-                .setFooter({ text: `Akun Uploader: @${userObj.roblox_username} | Kualitas: 320kbps HD` })
+                .setFooter({ text: `Akun Uploader: ${uploaderLabel} | Kualitas: 320kbps HD` })
                 .setTimestamp();
         }
 
@@ -708,7 +783,7 @@ async function executeYTUploadTask(interaction, session, speedVal) {
                 } catch (_) {}
 
                 try {
-                    const res = await runYTUpload(currentUrl, userObj.api_key, userObj.user_id, speedVal);
+                    const res = await runYTUpload(currentUrl, userObj.api_key, userObj.user_id, speedVal, 180000, userObj.creator_type || 'User');
                     if (res && res.success && res.asset_id) {
                         allResults.push({
                             ok: true,
@@ -964,7 +1039,8 @@ client.once('ready', async () => {
 client.on('interactionCreate', async (interaction) => {
     // 1. Handle Modal Submission (Setup Roblox)
     if (interaction.isModalSubmit()) {
-        if (interaction.customId === 'modal_setup_roblox') {
+        // === Modal: Setup Akun Pribadi (User) ===
+        if (interaction.customId === 'modal_setup_user' || interaction.customId === 'modal_setup_roblox') {
             await interaction.deferReply({ ephemeral: true });
 
             const apiKey = interaction.fields.getTextInputValue('input_api_key').trim();
@@ -989,16 +1065,19 @@ client.on('interactionCreate', async (interaction) => {
             user.user_id = userId;
             user.roblox_username = profile.name;
             user.roblox_display_name = profile.displayName || profile.name;
+            user.creator_type = 'User';
+            user.group_id = null;
+            user.group_name = null;
             users.saveUser(interaction.user.id, user);
 
             const embed = new EmbedBuilder()
                 .setColor('#2ecc71')
-                .setTitle('✅ SELAMAT AKUN ANDA TERHUBUNG')
+                .setTitle('✅ AKUN PRIBADI BERHASIL TERHUBUNG')
                 .setDescription('Akun uploader Roblox kamu telah berhasil dikonfigurasi secara private.')
                 .addFields(
                     { name: '👤 Username Roblox', value: `[@${profile.name}](https://www.roblox.com/users/${userId}/profile)`, inline: true },
                     { name: '🏷️ Display Name', value: profile.displayName || profile.name, inline: true },
-                    { name: '🆔 Roblox ID', value: `\`${userId}\``, inline: true },
+                    { name: '🆔 Roblox User ID', value: `\`${userId}\``, inline: true },
                     { name: '🔑 API Key Open Cloud', value: '`••••••••••••••••••••••••` *(Tersimpan aman)*', inline: false },
                     { name: '💎 Status Akun', value: user.role === 'vip' ? '🌟 **VIP (Unlimited)**' : `🆓 **Free** (Sisa Kuota: ${10 - user.quota.used}/10)`, inline: false }
                 )
@@ -1007,6 +1086,58 @@ client.on('interactionCreate', async (interaction) => {
 
             return interaction.editReply({ embeds: [embed] });
         }
+
+        // === Modal: Setup Group / Komunitas Roblox ===
+        if (interaction.customId === 'modal_setup_group') {
+            await interaction.deferReply({ ephemeral: true });
+
+            const apiKey = interaction.fields.getTextInputValue('input_api_key').trim();
+            const groupId = interaction.fields.getTextInputValue('input_group_id').trim();
+
+            if (!/^\d+$/.test(groupId)) {
+                return interaction.editReply({
+                    content: '❌ **Group ID tidak valid!** Pastikan hanya angka (Contoh: `1200769`).'
+                });
+            }
+
+            // Verifikasi Group Roblox
+            const group = await fetchRobloxGroup(groupId);
+            if (!group || !group.name) {
+                return interaction.editReply({
+                    content: '❌ **Gagal menemukan Group Roblox dengan ID tersebut!** Pastikan Group ID benar dan Group bersifat publik.'
+                });
+            }
+
+            const ownerName = group.owner ? group.owner.username || group.owner.displayName || 'Unknown' : 'Unknown';
+
+            let user = users.getUser(interaction.user.id) || users.createUser(interaction.user.id, interaction.user.tag);
+            user.api_key = apiKey;
+            user.user_id = groupId;        // target_id dipakai saat upload = groupId
+            user.group_id = groupId;
+            user.group_name = group.name;
+            user.roblox_username = group.name;
+            user.roblox_display_name = group.name;
+            user.creator_type = 'Group';
+            users.saveUser(interaction.user.id, user);
+
+            const embed = new EmbedBuilder()
+                .setColor('#9b59b6')
+                .setTitle('✅ KOMUNITAS / GROUP BERHASIL TERHUBUNG')
+                .setDescription('Group Roblox kamu telah berhasil dikonfigurasi sebagai akun uploader.')
+                .addFields(
+                    { name: '👥 Nama Group', value: `[${group.name}](https://www.roblox.com/groups/${groupId})`, inline: true },
+                    { name: '👑 Owner Group', value: ownerName, inline: true },
+                    { name: '🆔 Group ID', value: `\`${groupId}\``, inline: true },
+                    { name: '👥 Total Member', value: `${(group.memberCount || 0).toLocaleString()} member`, inline: true },
+                    { name: '🔑 API Key Open Cloud', value: '`••••••••••••••••••••••••` *(Tersimpan aman)*', inline: false },
+                    { name: '💎 Status Akun', value: user.role === 'vip' ? '🌟 **VIP (Unlimited)**' : `🆓 **Free** (Sisa Kuota: ${10 - user.quota.used}/10)`, inline: false }
+                )
+                .setFooter({ text: 'Semua upload & spoof akan menggunakan akun Group ini' })
+                .setTimestamp();
+
+            return interaction.editReply({ embeds: [embed] });
+        }
+
         return;
     }
 
@@ -1176,29 +1307,12 @@ client.on('interactionCreate', async (interaction) => {
 
     // === /setup ===
     if (commandName === 'setup') {
-        const modal = new ModalBuilder()
-            .setCustomId('modal_setup_roblox')
-            .setTitle('MASUKKAN APIKEY DAN USER ID');
-
-        const apiKeyInput = new TextInputBuilder()
-            .setCustomId('input_api_key')
-            .setLabel('Roblox Open Cloud API Key')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Paste API Key Creator Hub di sini...')
-            .setRequired(true);
-
-        const userIdInput = new TextInputBuilder()
-            .setCustomId('input_user_id')
-            .setLabel('Roblox User ID Anda')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Contoh: 123456789')
-            .setRequired(true);
-
-        const row1 = new ActionRowBuilder().addComponents(apiKeyInput);
-        const row2 = new ActionRowBuilder().addComponents(userIdInput);
-
-        modal.addComponents(row1, row2);
-        return interaction.showModal(modal);
+        const tipe = interaction.options.getString('tipe') || 'user';
+        if (tipe === 'group') {
+            return interaction.showModal(buildGroupSetupModal());
+        } else {
+            return interaction.showModal(buildUserSetupModal());
+        }
     }
 
     // === /status ===
@@ -1212,16 +1326,29 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const isVip = user.role === 'vip';
+        const isGroup = user.creator_type === 'Group';
         const sisa = isVip ? 'Unlimited' : `${Math.max(0, user.quota.limit - user.quota.used)}/${user.quota.limit}`;
+
+        const robloxLabel = isGroup
+            ? `[👥 ${user.group_name || user.roblox_username}](https://www.roblox.com/groups/${user.group_id})`
+            : `[@${user.roblox_username || '-'}](https://www.roblox.com/users/${user.user_id}/profile)`;
+
+        const idLabel = isGroup
+            ? `Group ID: \`${user.group_id}\``
+            : `User ID: \`${user.user_id}\``;
+
+        const tipeLabel = isGroup ? '👥 **Komunitas / Group**' : '👤 **Akun Pribadi**';
 
         const embed = new EmbedBuilder()
             .setColor(isVip ? '#f1c40f' : '#3498db')
             .setTitle('📊 STATUS AKUN SPOOFER')
             .addFields(
-                { name: '👤 Akun Roblox', value: `@${user.roblox_username || '-'} (${user.user_id})`, inline: true },
+                { name: isGroup ? '👥 Group Roblox' : '👤 Akun Roblox', value: robloxLabel, inline: true },
+                { name: '🔗 Tipe Akun', value: tipeLabel, inline: true },
+                { name: '🆔 ID', value: idLabel, inline: true },
                 { name: '💎 Role', value: isVip ? '🌟 **VIP Member**' : '🆓 **Free User**', inline: true },
                 { name: '⚡ Sisa Kuota Harian', value: `\`${sisa}\``, inline: true },
-                { name: '⏳ Masa Aktif VIP', value: isVip && user.vip_until ? `<t:${Math.floor(new Date(user.vip_until).getTime() / 1000)}:R>` : 'Tidak Aktif', inline: false }
+                { name: '⏳ Masa Aktif VIP', value: isVip && user.vip_until ? `<t:${Math.floor(new Date(user.vip_until).getTime() / 1000)}:R>` : 'Tidak Aktif', inline: true }
             )
             .setFooter({ text: 'Roblox Spoofer Bot v2.0' })
             .setTimestamp();
@@ -1782,7 +1909,7 @@ client.on('interactionCreate', async (interaction) => {
         // Jika tidak memasukkan asset_id atau mengetik "all", scan SEMUA lagu akun user di Creator Hub
         if (targetIds.length === 0) {
             isAll = true;
-            targetIds = await fetchUserAllAudios(userObj.user_id, 100);
+            targetIds = await fetchUserAllAudios(userObj.user_id, 100, userObj.creator_type || 'User');
         }
 
         if (targetIds.length === 0) {
@@ -1810,11 +1937,11 @@ client.on('interactionCreate', async (interaction) => {
                 `👤 **Developer Game:** \`${game.creator}\`\n` +
                 `🆔 **Universe ID:** \`${game.universeId}\`  |  **Place ID:** \`${placeId}\`\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `🎵 **Total Audio Diizinkan:** **${permRes.totalSuccess} Lagu** ${isAll ? '(Semua Lagu di Akun Kamu)' : ''}\n` +
+                `🎵 **Total Audio Diizinkan:** **${permRes.totalSuccess} Lagu** ${isAll ? `(Semua Lagu di ${userObj.creator_type === 'Group' ? `Group ${userObj.roblox_username}` : `Akun @${userObj.roblox_username}`})` : ''}\n` +
                 `📋 **Daftar ID Audio:**\n${previewList}${moreText}\n\n` +
                 `⚡ **Status In-Game:** **100% Aktif** (Lagu langsung bisa dibunyikan in-game/boombox/script)`
             )
-            .setFooter({ text: `Akun Roblox: @${userObj.roblox_username} • Fitur Eksklusif VIP` })
+            .setFooter({ text: `${userObj.creator_type === 'Group' ? '👥 Group' : '👤 Akun'}: ${userObj.roblox_username} • Fitur Eksklusif VIP` })
             .setTimestamp();
 
         if (game.iconUrl) embed.setThumbnail(game.iconUrl);

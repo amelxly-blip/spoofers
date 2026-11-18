@@ -36,8 +36,11 @@ function createUser(discordId, tag = '') {
         tag: tag || '',
         api_key: null,
         user_id: null,
+        creator_type: 'User', // 'User' | 'Group'
         roblox_username: null,
         roblox_display_name: null,
+        group_id: null,
+        group_name: null,
         role: 'free', // 'free' | 'vip'
         banned: false,
         quota: {
@@ -79,7 +82,7 @@ function canUse(discordId) {
     let user = getUser(discordId);
     if (!user) return { ok: false, reason: 'not_registered' };
     if (user.banned) return { ok: false, reason: 'banned' };
-    if (!user.api_key || !user.user_id) return { ok: false, reason: 'no_account' };
+    if (!user.api_key || (!user.user_id && !user.group_id)) return { ok: false, reason: 'no_account' };
 
     user = checkVIP(user);
     user = checkAndResetQuota(user);
