@@ -132,48 +132,47 @@ const GAME_DATABASE = {
     // Brookhaven RP (Place ID: 4924922222)
     '4924922222': {
         name: 'Brookhaven 🏡RP',
-        audios: DUGEM_TRACK_POOL.slice(0, 25),
+        audios: DUGEM_TRACK_POOL.slice(0, 30),
         dances: VERIFIED_POPULAR_DANCES
     },
     // Da Hood (Place ID: 2788229376)
     '2788229376': {
         name: 'Da Hood',
-        audios: DUGEM_TRACK_POOL.slice(0, 25),
+        audios: DUGEM_TRACK_POOL.slice(0, 30),
         dances: VERIFIED_POPULAR_DANCES
     },
     // Blade Ball (Place ID: 13772394625)
     '13772394625': {
         name: 'Blade Ball ⚔️',
-        audios: DUGEM_TRACK_POOL.slice(0, 20),
+        audios: DUGEM_TRACK_POOL.slice(0, 25),
         dances: VERIFIED_POPULAR_DANCES
     },
     // Blox Fruits (Place ID: 2753915549, 4442272183, 7449423635)
     '2753915549': {
         name: 'Blox Fruits',
-        audios: DUGEM_TRACK_POOL.slice(0, 20),
+        audios: DUGEM_TRACK_POOL.slice(0, 25),
         dances: VERIFIED_POPULAR_DANCES
     },
     // Murder Mystery 2 (Place ID: 142823291)
     '142823291': {
         name: 'Murder Mystery 2 🔪',
-        audios: DUGEM_TRACK_POOL.slice(0, 20),
+        audios: DUGEM_TRACK_POOL.slice(0, 25),
         dances: VERIFIED_POPULAR_DANCES
     },
     // Doors (Place ID: 6516141723)
     '6516141723': {
         name: 'DOORS 👁️',
-        audios: DUGEM_TRACK_POOL.slice(0, 15),
+        audios: DUGEM_TRACK_POOL.slice(0, 20),
         dances: VERIFIED_POPULAR_DANCES
     },
     // Evade (Place ID: 9872472334)
     '9872472334': {
         name: 'Evade 🏃',
-        audios: DUGEM_TRACK_POOL.slice(0, 25),
+        audios: DUGEM_TRACK_POOL.slice(0, 30),
         dances: VERIFIED_POPULAR_DANCES
     }
 };
 
-// Database Trending Roblox (Viral 2026) - 100% Downloadable & Siap Spoof
 const TRENDING_DATA = {
     audio: DUGEM_TRACK_POOL.slice(0, 30),
     dance: VERIFIED_POPULAR_DANCES
@@ -224,6 +223,7 @@ async function getGameDetails(placeId) {
             name: game.name || 'Roblox Game',
             creator: game.creator?.name || 'Roblox Creator',
             creatorId: game.creator?.id,
+            creatorType: game.creator?.type || 'User',
             description: game.description || '',
             iconUrl
         };
@@ -232,8 +232,111 @@ async function getGameDetails(placeId) {
     }
 }
 
-// Cari audio/musik yang cocok dari Roblox Marketplace Toolbox berdasarkan judul game
-async function searchMarketplaceTracks(query, maxCount = 25) {
+// 1. Ekstraksi langsung dari Place File CDN (Jika game uncopylocked / open source)
+async function scanPlaceCDN(placeId) {
+    let cookie = '';
+    const cookiePath = path.join(os.homedir(), '.uploader_config.json');
+    if (fs.existsSync(cookiePath)) {
+        try { cookie = JSON.parse(fs.readFileSync(cookiePath, 'utf8')).cookie || ''; } catch {}
+    }
+
+    const headers = { 'User-Agent': 'Roblox/WinInet' };
+    if (cookie) headers['Cookie'] = `.ROBLOSECURITY=${cookie.trim()}`;
+
+    try {
+        const res = await fetch(`https://assetdelivery.roblox.com/v2/assetId/${placeId}`, {
+            headers,
+            timeout: 10000
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const loc = data.locations?.[0]?.location;
+            if (loc) {
+                const dl = await fetch(loc, { headers: { 'User-Agent': 'Roblox/WinInet' }, timeout: 15000 });
+                if (dl.ok) {
+                    const text = await dl.text();
+                    const soundMatches = [...text.matchAll(/rbxassetid:\/\/(\d+)/gi)].map(m => m[1]);
+                    const animMatches = [...text.matchAll(/AnimationId.*?rbxassetid:\/\/(\d+)/gi)].map(m => m[1]);
+                    return {
+                        sounds: [...new Set(soundMatches)],
+                        dances: [...new Set(animMatches)]
+                    };
+                }
+            }
+        }
+    } catch {}
+    return { sounds: [], dances: [] };
+}
+
+// 2. Ekstraksi Aset Resmi yang Diunggah Langsung oleh Developer / Group Game Tersebut
+async function fetchCreatorAssets(creatorId, creatorType, typeId, maxCount = 50) {
+    if (!creatorId) return [];
+    let all = [];
+    let cursor = '';
+    const cParam = creatorType === 'Group' ? '&creatorType=Group' : '';
+    while (all.length < maxCount) {
+        const curParam = cursor ? '&cursor=' + encodeURIComponent(cursor) : '';
+        const url = `https://apis.roblox.com/toolbox-service/v1/marketplace/${typeId}?creatorId=${creatorId}${cParam}&num=50${curParam}`;
+        try {
+            const r = await fetch(url, { headers: { 'User-Agent': 'Roblox/WinInet' } });
+            if (!r.ok) break;
+            const d = await r.json();
+            const ids = (d.data || []).map(x => x.id);
+            if (!ids.length) break;
+            all.push(...ids);
+            if (!d.nextPageCursor) break;
+            cursor = d.nextPageCursor;
+        } catch { break; }
+    }
+    const uniqueIds = [...new Set(all)].slice(0, maxCount);
+    if (!uniqueIds.length) return [];
+
+    const details = [];
+    if (typeId === 3) {
+        // Audio: ambil details via toolbox details
+        for (let i = 0; i < uniqueIds.length; i += 30) {
+            const chunk = uniqueIds.slice(i, i + 30);
+            try {
+                const detR = await fetch(`https://apis.roblox.com/toolbox-service/v1/items/details?assetIds=${chunk.join(',')}`, {
+                    headers: { 'User-Agent': 'Roblox/WinInet' }
+                });
+                if (detR.ok) {
+                    const detD = await detR.json();
+                    for (const item of (detD.data || [])) {
+                        if (item.asset?.id) {
+                            details.push({
+                                id: String(item.asset.id),
+                                name: item.asset.name || 'Sound Track',
+                                creator: item.creator?.name || 'Developer'
+                            });
+                        }
+                    }
+                }
+            } catch {}
+        }
+    } else {
+        // Animation: ambil details via Economy v2
+        for (const aid of uniqueIds.slice(0, 30)) {
+            try {
+                const det = await fetch(`https://economy.roblox.com/v2/assets/${aid}/details`, {
+                    headers: { 'User-Agent': 'Roblox/WinInet' }
+                });
+                if (det.ok) {
+                    const dd = await det.json();
+                    details.push({
+                        id: String(aid),
+                        name: dd.Name || 'Dance Emote',
+                        creator: dd.Creator?.Name || 'Developer'
+                    });
+                }
+            } catch {}
+        }
+    }
+    return details;
+}
+
+// 3. Cari audio/musik yang cocok dari Roblox Marketplace berdasarkan judul game
+async function searchMarketplaceTracks(query, maxCount = 30) {
     try {
         const cleanQuery = query.replace(/[^\w\s]/gi, '').trim().split(' ')[0];
         if (!cleanQuery || cleanQuery.length < 2) return [];
@@ -289,58 +392,92 @@ async function ripGame(placeId, targetType = 'audio', requestedCount = null) {
         const titleLower = (game.name + ' ' + (game.description || '')).toLowerCase();
         const isDugemClub = /(dugem|club|bar|skylen|malam|night|dj|horeg|party|disco|diskotik|jedag|lounge|bass|breakbeat|vibe|sound)/i.test(titleLower);
         if (isDugemClub) {
-            targetLimit = 50; // Untuk map dugem, otomatis scan hingga 50 lagu!
+            targetLimit = 50; // Untuk map dugem/clubbing otomatis scan 50 lagu
         }
     }
 
     let assets = [];
-    const dbEntry = GAME_DATABASE[placeId];
+    const seenIds = new Set();
 
-    if (dbEntry) {
-        if (targetType === 'audio') {
-            assets = dbEntry.audios.slice(0, targetLimit);
-            if (assets.length < targetLimit) {
-                const existingIds = new Set(assets.map(a => a.id));
-                for (const item of DUGEM_TRACK_POOL) {
-                    if (!existingIds.has(item.id)) {
-                        assets.push(item);
-                        existingIds.add(item.id);
-                        if (assets.length >= targetLimit) break;
-                    }
-                }
+    // 1. Ekstraksi langsung dari Place File jika uncopylocked
+    const cdnScanned = await scanPlaceCDN(placeId);
+    const cdnRaw = targetType === 'audio' ? cdnScanned.sounds : cdnScanned.dances;
+    if (cdnRaw && cdnRaw.length > 0) {
+        for (const aid of cdnRaw) {
+            if (!seenIds.has(aid)) {
+                seenIds.add(aid);
+                assets.push({
+                    name: `${targetType === 'audio' ? 'In-Game Sound Track' : 'In-Game Dance Move'} #${assets.length + 1}`,
+                    id: aid,
+                    creator: game.creator
+                });
+                if (assets.length >= targetLimit) break;
             }
-        } else {
-            assets = [...dbEntry.dances];
         }
-    } else {
-        if (targetType === 'audio') {
-            // Coba cari track sesuai nama game
-            const dynamicTracks = await searchMarketplaceTracks(game.name, Math.min(25, targetLimit));
-            if (dynamicTracks.length > 0) {
-                assets = dynamicTracks;
+    }
+
+    // 2. Ekstraksi aset dari Developer / Creator game tersebut
+    if (assets.length < targetLimit && game.creatorId) {
+        const typeId = targetType === 'audio' ? 3 : 24;
+        const creatorAssets = await fetchCreatorAssets(game.creatorId, game.creatorType, typeId, targetLimit - assets.length);
+        for (const ca of creatorAssets) {
+            if (!seenIds.has(ca.id)) {
+                seenIds.add(ca.id);
+                assets.push(ca);
+                if (assets.length >= targetLimit) break;
             }
-            // Lengkapi dengan track populer / dugem pool hingga mencapai targetLimit (bisa sampai 50-100)
-            if (assets.length < targetLimit) {
-                const existingIds = new Set(assets.map(a => a.id));
-                for (const item of DUGEM_TRACK_POOL) {
-                    if (!existingIds.has(item.id)) {
-                        assets.push({
-                            name: `${item.name} (${game.name.slice(0, 15)})`,
-                            id: item.id,
-                            creator: item.creator
-                        });
-                        existingIds.add(item.id);
-                        if (assets.length >= targetLimit) break;
-                    }
-                }
+        }
+    }
+
+    // 3. Database curated untuk place-place top
+    const dbEntry = GAME_DATABASE[placeId];
+    if (dbEntry && assets.length < targetLimit) {
+        const dbItems = targetType === 'audio' ? dbEntry.audios : dbEntry.dances;
+        for (const it of dbItems) {
+            if (!seenIds.has(it.id)) {
+                seenIds.add(it.id);
+                assets.push(it);
+                if (assets.length >= targetLimit) break;
             }
-        } else {
-            // Untuk dance / animasi
-            assets = VERIFIED_POPULAR_DANCES.map(d => ({
-                name: `${d.name} (${game.name.slice(0, 15)})`,
-                id: d.id,
-                creator: d.creator
-            }));
+        }
+    }
+
+    // 4. Pencarian dinamis marketplace berdasarkan nama game
+    if (targetType === 'audio' && assets.length < targetLimit) {
+        const dynamicTracks = await searchMarketplaceTracks(game.name, targetLimit - assets.length);
+        for (const dt of dynamicTracks) {
+            if (!seenIds.has(dt.id)) {
+                seenIds.add(dt.id);
+                assets.push(dt);
+                if (assets.length >= targetLimit) break;
+            }
+        }
+    }
+
+    // 5. Lengkapi hingga targetLimit dengan Dugem Pool (untuk audio) atau Verified Dances (untuk dance)
+    if (targetType === 'audio' && assets.length < targetLimit) {
+        for (const it of DUGEM_TRACK_POOL) {
+            if (!seenIds.has(it.id)) {
+                seenIds.add(it.id);
+                assets.push({
+                    name: `${it.name} (${game.name.slice(0, 15)})`,
+                    id: it.id,
+                    creator: it.creator
+                });
+                if (assets.length >= targetLimit) break;
+            }
+        }
+    } else if (targetType === 'dance' && assets.length < targetLimit) {
+        for (const d of VERIFIED_POPULAR_DANCES) {
+            if (!seenIds.has(d.id)) {
+                seenIds.add(d.id);
+                assets.push({
+                    name: `${d.name} (${game.name.slice(0, 15)})`,
+                    id: d.id,
+                    creator: d.creator
+                });
+                if (assets.length >= targetLimit) break;
+            }
         }
     }
 
