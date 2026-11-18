@@ -193,24 +193,26 @@ async def download_asset(session, aid, save_dir, source_place_id=None):
         spoof_headers = headers.copy()
         spoof_headers["Roblox-Place-Id"] = str(pid)
 
-        # Coba v2 CDN dengan Place ID
-        try:
-            async with session.get(f"https://assetdelivery.roblox.com/v2/assetId/{aid}", headers=spoof_headers, timeout=aiohttp.ClientTimeout(total=20)) as r:
-                if r.status == 200:
-                    data = await r.json(content_type=None)
-                    locations = data.get("locations", [])
-                    if locations and locations[0].get("location"):
-                        cdn_url = locations[0]["location"]
-                        async with session.get(cdn_url, headers={"User-Agent": "Roblox/WinInet"}, timeout=aiohttp.ClientTimeout(total=60)) as cdn_r:
-                            if cdn_r.status == 200:
-                                content = await cdn_r.read()
-                                if content and len(content) > 100:
-                                    ext = determine_extension(content)
-                                    p = os.path.join(save_dir, f"asset_{aid}{ext}")
-                                    with open(p, "wb") as f: f.write(content)
-                                    add_place_cache(pid)
-                                    return {"success": True, "file_path": p}
-        except: pass
+        # Coba v2 CDN dengan Place ID (baik normal maupun version/1)
+        for v_url in [f"https://assetdelivery.roblox.com/v2/assetId/{aid}", f"https://assetdelivery.roblox.com/v2/assetId/{aid}/version/1"]:
+            try:
+                async with session.get(v_url, headers=spoof_headers, timeout=aiohttp.ClientTimeout(total=20)) as r:
+                    if r.status == 200:
+                        data = await r.json(content_type=None)
+                        locations = data.get("locations", [])
+                        if locations and locations[0].get("location"):
+                            cdn_url = locations[0]["location"]
+                            async with session.get(cdn_url, headers={"User-Agent": "Roblox/WinInet"}, timeout=aiohttp.ClientTimeout(total=60)) as cdn_r:
+                                if cdn_r.status == 200:
+                                    content = await cdn_r.read()
+                                    if content and len(content) > 100:
+                                        ext = determine_extension(content)
+                                        p = os.path.join(save_dir, f"asset_{aid}{ext}")
+                                        with open(p, "wb") as f: f.write(content)
+                                        add_place_cache(pid)
+                                        return {"success": True, "file_path": p}
+                    elif r.status == 429: await asyncio.sleep(1.5)
+            except: pass
 
         # Coba v1 Direct dengan Place ID
         try:
@@ -223,7 +225,7 @@ async def download_asset(session, aid, save_dir, source_place_id=None):
                         with open(p, "wb") as f: f.write(content)
                         add_place_cache(pid)
                         return {"success": True, "file_path": p}
-                elif r.status == 429: await asyncio.sleep(2)
+                elif r.status == 429: await asyncio.sleep(1.5)
         except: pass
 
     return {"success": False, "error": "Bypass Gagal (Private/Rate Limit)"}

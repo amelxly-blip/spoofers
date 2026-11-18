@@ -124,7 +124,18 @@ const VERIFIED_POPULAR_DANCES = [
     { name: 'Lay Down & Relax Pose (AFK Emote)', id: '4689362868', creator: 'Roblox Emotes' },
     { name: 'R15 Dance Move #1 (Roblox Default)', id: '507771019', creator: 'Roblox Emotes' },
     { name: 'R15 Catwalk Dance #2 (Runway Pose)', id: '507772104', creator: 'Roblox Emotes' },
-    { name: 'R15 Cheer & Wave (Winner Emote)', id: '507770677', creator: 'Roblox Emotes' }
+    { name: 'R15 Dance Move #3 (Rhythm Step)', id: '507776879', creator: 'Roblox Emotes' },
+    { name: 'R15 Cheer & Wave (Winner Emote)', id: '507770677', creator: 'Roblox Emotes' },
+    { name: 'R15 Friendly Wave (Hello Emote)', id: '507770239', creator: 'Roblox Emotes' },
+    { name: 'R15 Point Gesture (Leader Emote)', id: '507770453', creator: 'Roblox Emotes' },
+    { name: 'R15 Laugh & Giggle (Funny Emote)', id: '507770818', creator: 'Roblox Emotes' },
+    { name: 'R15 Military Salute (Respect Pose)', id: '507777623', creator: 'Roblox Emotes' },
+    { name: 'R15 Stadium Cheers (Crowd Hype)', id: '507776720', creator: 'Roblox Emotes' },
+    { name: 'R15 Head Tilt (Confused Pose)', id: '507777451', creator: 'Roblox Emotes' },
+    { name: 'Spin Dance (B-Boy 360 Turn)', id: '3338083565', creator: 'Roblox Emotes' },
+    { name: 'Line Dance (Country Groove)', id: '3338097973', creator: 'Roblox Emotes' },
+    { name: 'Twist Dance (Retro Party Move)', id: '3338042785', creator: 'Roblox Emotes' },
+    { name: 'Hype Dance (Stage Energy Jump)', id: '3338025566', creator: 'Roblox Emotes' }
 ];
 
 // Curated Database untuk Game-Game Terpopuler di Roblox
@@ -255,8 +266,17 @@ async function scanPlaceCDN(placeId) {
                 const dl = await fetch(loc, { headers: { 'User-Agent': 'Roblox/WinInet' }, timeout: 15000 });
                 if (dl.ok) {
                     const text = await dl.text();
-                    const soundMatches = [...text.matchAll(/rbxassetid:\/\/(\d+)/gi)].map(m => m[1]);
-                    const animMatches = [...text.matchAll(/AnimationId.*?rbxassetid:\/\/(\d+)/gi)].map(m => m[1]);
+                    const soundMatches = [
+                        ...text.matchAll(/rbxassetid:\/\/(\d+)/gi),
+                        ...text.matchAll(/roblox\.com\/asset\/\?id=(\d+)/gi),
+                        ...text.matchAll(/SoundId.*?(\d{6,16})/gi)
+                    ].map(m => m[1]);
+
+                    const animMatches = [
+                        ...text.matchAll(/AnimationId.*?(\d{6,16})/gi),
+                        ...text.matchAll(/rbxassetid:\/\/(\d+)/gi)
+                    ].map(m => m[1]);
+
                     return {
                         sounds: [...new Set(soundMatches)],
                         dances: [...new Set(animMatches)]
@@ -332,7 +352,28 @@ async function fetchCreatorAssets(creatorId, creatorType, typeId, maxCount = 50)
             } catch {}
         }
     }
-    return details;
+
+    // Verifikasi apakah aset dapat diunduh dari CDN Roblox (Bebas dari error 401/403 Private)
+    const verifiedDetails = [];
+    const checkBatchSize = 6;
+    for (let i = 0; i < details.length; i += checkBatchSize) {
+        const batch = details.slice(i, i + checkBatchSize);
+        await Promise.all(batch.map(async (item) => {
+            try {
+                const vRes = await fetch(`https://assetdelivery.roblox.com/v2/assetId/${item.id}`, {
+                    headers: { 'User-Agent': 'Roblox/WinInet' }
+                });
+                if (vRes.ok) {
+                    const vData = await vRes.json();
+                    if (vData.locations && vData.locations[0]?.location) {
+                        verifiedDetails.push(item);
+                    }
+                }
+            } catch {}
+        }));
+    }
+
+    return verifiedDetails;
 }
 
 // 3. Cari audio/musik yang cocok dari Roblox Marketplace berdasarkan judul game
