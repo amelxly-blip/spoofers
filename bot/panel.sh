@@ -165,6 +165,26 @@ remove_vip() {
     header
     echo -e "${WHITE}  HAPUS / CABUT STATUS VIP USER DISCORD${NC}"
     echo ""
+
+    # Tampilkan daftar VIP dulu biar mudah pilih
+    node -e "
+        const users = require('./users');
+        const list = users.getAllVIP();
+        if (list.length === 0) {
+            console.log('  (Belum ada member VIP aktif)');
+        } else {
+            console.log('  No. | DISCORD USER ID       | DISCORD TAG          | SISA HARI');
+            console.log('  -----------------------------------------------------------------------');
+            list.forEach((v, i) => {
+                const noStr  = String(i + 1).padEnd(3);
+                const idStr  = String(v.discord_id || '-').padEnd(21);
+                const tagStr = String(v.tag || '-').padEnd(20);
+                console.log('  ' + noStr + ' | ' + idStr + ' | ' + tagStr + ' | ' + v.days_left + ' hari (s/d ' + v.until + ')');
+            });
+            console.log('  -----------------------------------------------------------------------');
+        }
+    "
+    echo ""
     echo -ne "  Masukkan Discord User ID yang ingin dicabut: "
     read -r TARGET_UID
     TARGET_UID=$(echo "$TARGET_UID" | sed 's/^[ \t]*//;s/[ \t]*$//')
@@ -196,15 +216,17 @@ list_vip() {
         if (list.length === 0) {
             console.log('  (Belum ada member VIP aktif)');
         } else {
-            console.log('  -------------------------------------------------------------');
-            console.log('  DISCORD USER ID       | USERNAME ROBLOX   | SISA HARI');
-            console.log('  -------------------------------------------------------------');
-            for (const v of list) {
-                const idStr = String(v.discord_id || '-').padEnd(21);
+            console.log('  No. | DISCORD USER ID       | DISCORD TAG          | USERNAME ROBLOX   | SISA HARI');
+            console.log('  -----------------------------------------------------------------------------------------');
+            list.forEach((v, i) => {
+                const noStr  = String(i + 1).padEnd(3);
+                const idStr  = String(v.discord_id || '-').padEnd(21);
+                const tagStr = String(v.tag || '-').padEnd(20);
                 const rbxStr = String(v.roblox || '-').padEnd(17);
-                console.log('  ' + idStr + ' | ' + rbxStr + ' | ' + v.days_left + ' hari (' + v.until + ')');
-            }
-            console.log('  -------------------------------------------------------------');
+                console.log('  ' + noStr + ' | ' + idStr + ' | ' + tagStr + ' | ' + rbxStr + ' | ' + v.days_left + ' hari (s/d ' + v.until + ')');
+            });
+            console.log('  -----------------------------------------------------------------------------------------');
+            console.log('  Total VIP aktif: ' + list.length + ' user');
         }
     "
     echo ""
