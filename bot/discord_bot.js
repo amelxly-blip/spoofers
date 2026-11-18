@@ -426,6 +426,8 @@ async function grantAudioPermissions(apiKey, universeId, assetIds) {
 
 const OWNER_DISCORD_ID = '1309112913331748915';
 const pendingSessions = new Map();
+// Map untuk menyimpan data setup sementara saat ambiguous (ID match User & Group sekaligus)
+const pendingSetupSessions = new Map();
 
 function buildSpoofTypeUI(sessionId, assetIds) {
     const embed = new EmbedBuilder()
@@ -1030,7 +1032,7 @@ client.once('ready', async () => {
 client.on('interactionCreate', async (interaction) => {
     // 1. Handle Modal Submission (Setup Roblox)
     if (interaction.isModalSubmit()) {
-        // === Modal: Setup Akun Roblox (auto-detect User / Group) ===
+        // === Modal: Setup Akun Roblox (auto-detect User / Group — cek parallel) ===
         if (interaction.customId === 'modal_setup_user' || interaction.customId === 'modal_setup_roblox') {
             await interaction.deferReply({ ephemeral: true });
 
@@ -1039,15 +1041,21 @@ client.on('interactionCreate', async (interaction) => {
 
             if (!/^\d+$/.test(inputId)) {
                 return interaction.editReply({
-                    content: '❌ **ID tidak valid!** Pastikan hanya angka ya, bro. (Contoh User ID: `123456789` / Group ID: `1200769`)'
+                    content: '❌ **ID tidak valid!** Pastikan hanya angka. (Contoh User ID: `123456789` / Group ID: `1200769`)'
                 });
             }
 
-            // Coba dulu sebagai Akun Pribadi (User)
-            const profile = await fetchRobloxUser(inputId);
+            // Cek KEDUANYA secara parallel sekaligus
+            const [profile, group] = await Promise.all([
+                fetchRobloxUser(inputId),
+                fetchRobloxGroup(inputId)
+            ]);
 
-            if (profile && profile.name) {
-                // ✅ Ketemu sebagai User
+            const isUser  = !!(profile && profile.name);
+            const isGroup = !!(group && group.name);
+
+            // Kasus 1: Hanya ketemu sebagai User
+            if (isUser && !isGroup) {
                 let user = users.getUser(interaction.user.id) || users.createUser(interaction.user.id, interaction.user.tag);
                 user.api_key = apiKey;
                 user.user_id = inputId;
@@ -1071,17 +1079,12 @@ client.on('interactionCreate', async (interaction) => {
                     )
                     .setFooter({ text: '👤 Akun Pribadi • Siap pakai /spoof' })
                     .setTimestamp();
-
                 return interaction.editReply({ embeds: [embed] });
             }
 
-            // Kalau bukan User, coba sebagai Group / Komunitas
-            const group = await fetchRobloxGroup(inputId);
-
-            if (group && group.name) {
-                // ✅ Ketemu sebagai Group
+            // Kasus 2: Hanya ketemu sebagai Group
+            if (isGroup && !isUser) {
                 const ownerName = group.owner ? (group.owner.username || group.owner.displayName || 'Unknown') : 'Unknown';
-
                 let user = users.getUser(interaction.user.id) || users.createUser(interaction.user.id, interaction.user.tag);
                 user.api_key = apiKey;
                 user.user_id = inputId;
@@ -1106,17 +1109,58 @@ client.on('interactionCreate', async (interaction) => {
                     )
                     .setFooter({ text: '👥 Komunitas / Group • Semua upload & spoof pakai akun Group ini' })
                     .setTimestamp();
-
                 return interaction.editReply({ embeds: [embed] });
             }
 
-            // Tidak ketemu sama sekali
+            // Kasus 3: ID match KEDUANYA (User & Group punya angka yang sama) → tanya user
+            if (isUser && isGroup) {
+                const setupSessId = 'setup_' + interaction.user.id + '_' + Date.now();
+                pendingSetupSessions.set(setupSessId, {
+                    apiKey,
+                    inputId,
+                    profile,
+                    group,
+                    discordId: interaction.user.id,
+                    discordTag: interaction.user.tag
+                });
+                // Expire session setelah 5 menit
+                setTimeout(() => pendingSetupSessions.delete(setupSessId), 5 * 60 * 1000);
+
+                const ownerName = group.owner ? (group.owner.username || group.owner.displayName || 'Unknown') : 'Unknown';
+                const embed = new EmbedBuilder()
+                    .setColor('#f39c12')
+                    .setTitle('⚠️ ID Ditemukan di Dua Tempat!')
+                    .setDescription(
+                        `ID \`${inputId}\` cocok dengan **Akun Pribadi** sekaligus **Group Roblox**.\n` +
+                        `Pilih salah satu di bawah sesuai yang kamu maksud:`
+                    )
+                    .addFields(
+                        { name: '👤 Akun Pribadi', value: `@${profile.name} (${profile.displayName || profile.name})`, inline: true },
+                        { name: '👥 Group', value: `${group.name} • ${(group.memberCount || 0).toLocaleString()} member (Owner: ${ownerName})`, inline: true }
+                    )
+                    .setFooter({ text: 'Pilih tombol di bawah dalam 5 menit' })
+                    .setTimestamp();
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`setup_pick_user:${setupSessId}`)
+                        .setLabel(`👤 Pakai Akun Pribadi (@${profile.name})`)
+                        .setStyle(ButtonStyle.Success),
+                    new ButtonBuilder()
+                        .setCustomId(`setup_pick_group:${setupSessId}`)
+                        .setLabel(`👥 Pakai Group (${group.name})`)
+                        .setStyle(ButtonStyle.Primary)
+                );
+                return interaction.editReply({ embeds: [embed], components: [row] });
+            }
+
+            // Kasus 4: Tidak ketemu sama sekali
             return interaction.editReply({
-                content: '❌ **ID tidak ditemukan!** Pastikan ID yang kamu masukkan benar.\n• Kalau **Akun Pribadi** → masukkan **User ID** Roblox kamu\n• Kalau **Komunitas/Group** → masukkan **Group ID** komunitas kamu'
+                content: '❌ **ID tidak ditemukan!** Pastikan ID yang kamu masukkan benar.\n• **Akun Pribadi** → masukkan **User ID** Roblox kamu\n• **Komunitas/Group** → masukkan **Group ID** komunitas kamu'
             });
         }
 
-        // === Modal: Setup Group (legacy/langsung) ===
+        // === Modal: Setup Group (legacy/langsung — customId lama) ===
         if (interaction.customId === 'modal_setup_group') {
             await interaction.deferReply({ ephemeral: true });
             const apiKey = interaction.fields.getTextInputValue('input_api_key').trim();
@@ -1158,6 +1202,82 @@ client.on('interactionCreate', async (interaction) => {
     // 2. Handle Interactive Buttons & Select Menus (Spoof Type & Speed Bypass)
     if (interaction.isButton() || interaction.isStringSelectMenu()) {
         const customId = interaction.customId;
+
+        // === Setup Disambiguate: User pilih Akun Pribadi ===
+        if (customId.startsWith('setup_pick_user:')) {
+            const sessId = customId.split(':')[1];
+            const sess = pendingSetupSessions.get(sessId);
+            if (!sess) {
+                return interaction.reply({ content: '⏰ Sesi sudah expired. Silakan jalankan `/setup` lagi.', ephemeral: true });
+            }
+            if (interaction.user.id !== sess.discordId) {
+                return interaction.reply({ content: '⛔ Bukan sesimu.', ephemeral: true });
+            }
+            pendingSetupSessions.delete(sessId);
+
+            let user = users.getUser(interaction.user.id) || users.createUser(interaction.user.id, interaction.user.tag);
+            user.api_key = sess.apiKey;
+            user.user_id = sess.inputId;
+            user.roblox_username = sess.profile.name;
+            user.roblox_display_name = sess.profile.displayName || sess.profile.name;
+            user.creator_type = 'User';
+            user.group_id = null;
+            user.group_name = null;
+            users.saveUser(interaction.user.id, user);
+
+            const embed = new EmbedBuilder()
+                .setColor('#2ecc71')
+                .setTitle('✅ AKUN PRIBADI BERHASIL TERHUBUNG')
+                .addFields(
+                    { name: '👤 Username', value: `[@${sess.profile.name}](https://www.roblox.com/users/${sess.inputId}/profile)`, inline: true },
+                    { name: '🏷️ Display Name', value: sess.profile.displayName || sess.profile.name, inline: true },
+                    { name: '🆔 User ID', value: `\`${sess.inputId}\``, inline: true },
+                    { name: '🔑 API Key', value: '`••••••••••••••••••` *(Tersimpan aman)*', inline: false },
+                    { name: '💎 Status', value: user.role === 'vip' ? '🌟 **VIP (Unlimited)**' : `🆓 **Free** (Sisa Kuota: ${10 - user.quota.used}/10)`, inline: false }
+                )
+                .setFooter({ text: '👤 Akun Pribadi • Siap pakai /spoof' })
+                .setTimestamp();
+            return interaction.update({ embeds: [embed], components: [] });
+        }
+
+        // === Setup Disambiguate: User pilih Group ===
+        if (customId.startsWith('setup_pick_group:')) {
+            const sessId = customId.split(':')[1];
+            const sess = pendingSetupSessions.get(sessId);
+            if (!sess) {
+                return interaction.reply({ content: '⏰ Sesi sudah expired. Silakan jalankan `/setup` lagi.', ephemeral: true });
+            }
+            if (interaction.user.id !== sess.discordId) {
+                return interaction.reply({ content: '⛔ Bukan sesimu.', ephemeral: true });
+            }
+            pendingSetupSessions.delete(sessId);
+
+            const ownerName = sess.group.owner ? (sess.group.owner.username || sess.group.owner.displayName || 'Unknown') : 'Unknown';
+            let user = users.getUser(interaction.user.id) || users.createUser(interaction.user.id, interaction.user.tag);
+            user.api_key = sess.apiKey;
+            user.user_id = sess.inputId;
+            user.group_id = sess.inputId;
+            user.group_name = sess.group.name;
+            user.roblox_username = sess.group.name;
+            user.roblox_display_name = sess.group.name;
+            user.creator_type = 'Group';
+            users.saveUser(interaction.user.id, user);
+
+            const embed = new EmbedBuilder()
+                .setColor('#9b59b6')
+                .setTitle('✅ KOMUNITAS / GROUP BERHASIL TERHUBUNG')
+                .addFields(
+                    { name: '👥 Nama Group', value: `[${sess.group.name}](https://www.roblox.com/groups/${sess.inputId})`, inline: true },
+                    { name: '👑 Owner', value: ownerName, inline: true },
+                    { name: '🆔 Group ID', value: `\`${sess.inputId}\``, inline: true },
+                    { name: '👥 Member', value: `${(sess.group.memberCount || 0).toLocaleString()} orang`, inline: true },
+                    { name: '🔑 API Key', value: '`••••••••••••••••••` *(Tersimpan aman)*', inline: false },
+                    { name: '💎 Status', value: user.role === 'vip' ? '🌟 **VIP (Unlimited)**' : `🆓 **Free** (Sisa Kuota: ${10 - user.quota.used}/10)`, inline: false }
+                )
+                .setFooter({ text: '👥 Komunitas / Group • Semua upload & spoof pakai akun Group ini' })
+                .setTimestamp();
+            return interaction.update({ embeds: [embed], components: [] });
+        }
 
         // A. Pilihan Tipe Aset (/spoof)
         if (customId.startsWith('type_btn:') || customId.startsWith('type_select:')) {
