@@ -126,25 +126,27 @@ add_vip() {
 
     echo ""
     echo -e "  Pilihan Durasi VIP:"
-    echo -e "  [1] 7 Hari (1 Minggu)"
-    echo -e "  [2] 30 Hari (1 Bulan)"
-    echo -e "  [3] 60 Hari (2 Bulan)"
-    echo -e "  [4] 365 Hari (1 Tahun)"
-    echo -e "  [5] Custom Hari"
-    echo -ne "  Pilih durasi [1-5]: "
+    echo -e "  [1] 3 Hari (Paket Hemat / Trial)"
+    echo -e "  [2] 7 Hari (1 Minggu)"
+    echo -e "  [3] 30 Hari (1 Bulan)"
+    echo -e "  [4] 60 Hari (2 Bulan)"
+    echo -e "  [5] 365 Hari (1 Tahun)"
+    echo -e "  [6] Custom Hari"
+    echo -ne "  Pilih durasi [1-6]: "
     read -r D_OPT
 
-    DAYS=30
+    DAYS=3
     case $D_OPT in
-        1) DAYS=7 ;;
-        2) DAYS=30 ;;
-        3) DAYS=60 ;;
-        4) DAYS=365 ;;
-        5)
+        1) DAYS=3 ;;
+        2) DAYS=7 ;;
+        3) DAYS=30 ;;
+        4) DAYS=60 ;;
+        5) DAYS=365 ;;
+        6)
             echo -ne "  Masukkan jumlah hari: "
             read -r DAYS
             ;;
-        *) DAYS=30 ;;
+        *) DAYS=3 ;;
     esac
 
     node -e "

@@ -182,6 +182,36 @@ const commands = [
                     { name: '🎵 Trending Audio (Musik / Phonk / Breakbeat)', value: 'audio' },
                     { name: '🎬 Trending Dance (Emote / Animasi)', value: 'dance' }
                 )
+        ),
+
+    new SlashCommandBuilder()
+        .setName('addvip')
+        .setDescription('👑 [Owner] Tambah masa aktif VIP untuk user Discord')
+        .addUserOption(opt =>
+            opt.setName('user')
+                .setDescription('User Discord yang ingin diberi VIP')
+                .setRequired(true)
+        )
+        .addIntegerOption(opt =>
+            opt.setName('durasi')
+                .setDescription('Pilih durasi VIP')
+                .setRequired(true)
+                .addChoices(
+                    { name: '⚡ 3 Hari (Paket Hemat / Trial)', value: 3 },
+                    { name: '📅 7 Hari (1 Minggu)', value: 7 },
+                    { name: '🌟 30 Hari (1 Bulan)', value: 30 },
+                    { name: '💎 60 Hari (2 Bulan)', value: 60 },
+                    { name: '👑 365 Hari (1 Tahun)', value: 365 }
+                )
+        ),
+
+    new SlashCommandBuilder()
+        .setName('removevip')
+        .setDescription('👑 [Owner] Cabut status VIP user Discord')
+        .addUserOption(opt =>
+            opt.setName('user')
+                .setDescription('User Discord yang ingin dicabut status VIP-nya')
+                .setRequired(true)
         )
 ].map(c => c.toJSON());
 
@@ -712,6 +742,17 @@ async function sendQuotaExceededReply(interaction) {
                     '🛡️ **Bypass Anti Hak Cipta & Aman Banned**'
                 ),
                 inline: false
+            },
+            {
+                name: '📦 Pilihan Durasi Paket VIP',
+                value: (
+                    '• ⚡ **3 Hari:** Paket Hemat / Trial\n' +
+                    '• 📅 **7 Hari:** Paket 1 Minggu\n' +
+                    '• 🌟 **30 Hari:** Paket 1 Bulan\n' +
+                    '• 👑 **Custom:** Bebas tentukan durasi\n' +
+                    '*Chat/DM Owner untuk pembelian & aktivasi instant!*'
+                ),
+                inline: false
             }
         )
         .setFooter({
@@ -777,6 +818,17 @@ async function sendVipOnlyReply(interaction) {
                     '🔥 **Akses Trending Assets Hub** (1-klik spoof lagu & dance viral)\n' +
                     '♾️ **Unlimited Kuota Harian** (Bypass tanpa batas)\n' +
                     '🚀 **Prioritas Antrean #1 (Langsung diproses tanpa antre)**'
+                ),
+                inline: false
+            },
+            {
+                name: '📦 Pilihan Durasi Paket VIP',
+                value: (
+                    '• ⚡ **3 Hari:** Paket Hemat / Trial\n' +
+                    '• 📅 **7 Hari:** Paket 1 Minggu\n' +
+                    '• 🌟 **30 Hari:** Paket 1 Bulan\n' +
+                    '• 👑 **Custom:** Bebas tentukan durasi\n' +
+                    '*Klik tombol di bawah untuk langsung DM Owner!*'
                 ),
                 inline: false
             }
@@ -1472,6 +1524,50 @@ client.on('interactionCreate', async (interaction) => {
         );
 
         return interaction.reply({ embeds: [embed], components: [row] });
+    }
+
+    // === /addvip (Owner Only) ===
+    if (commandName === 'addvip') {
+        if (discordId !== OWNER_DISCORD_ID) {
+            return interaction.reply({
+                content: '⛔ **Akses Ditolak!** Perintah ini khusus untuk Owner bot.',
+                ephemeral: true
+            });
+        }
+        const targetUser = interaction.options.getUser('user');
+        const durasi = interaction.options.getInteger('durasi') || 3;
+        const updated = users.addVIP(targetUser.id, durasi);
+
+        const embed = new EmbedBuilder()
+            .setColor('#2ecc71')
+            .setTitle('👑 VIP BERHASIL DIAKTIFKAN!')
+            .setDescription(`Berhasil memberikan role **VIP Member** kepada <@${targetUser.id}>.`)
+            .addFields(
+                { name: '👤 User', value: `<@${targetUser.id}> (\`${targetUser.id}\`)`, inline: true },
+                { name: '⏳ Durasi', value: `**${durasi} Hari**`, inline: true },
+                { name: '📅 Masa Aktif S/D', value: `<t:${Math.floor(new Date(updated.vip_until).getTime() / 1000)}:F>`, inline: false }
+            )
+            .setFooter({ text: 'Aktivasi VIP Berhasil • Status VIP Aktif' })
+            .setTimestamp();
+
+        return interaction.reply({ embeds: [embed] });
+    }
+
+    // === /removevip (Owner Only) ===
+    if (commandName === 'removevip') {
+        if (discordId !== OWNER_DISCORD_ID) {
+            return interaction.reply({
+                content: '⛔ **Akses Ditolak!** Perintah ini khusus untuk Owner bot.',
+                ephemeral: true
+            });
+        }
+        const targetUser = interaction.options.getUser('user');
+        users.removeVIP(targetUser.id);
+
+        return interaction.reply({
+            content: `✅ Status VIP untuk <@${targetUser.id}> (\`${targetUser.id}\`) telah berhasil dicabut.`,
+            ephemeral: true
+        });
     }
 });
 
