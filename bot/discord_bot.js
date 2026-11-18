@@ -185,6 +185,24 @@ const commands = [
         ),
 
     new SlashCommandBuilder()
+        .setName('grantmusic')
+        .setDescription('Izinkan lagu Roblox kamu agar bisa diputar di game target tanpa error (Khusus VIP)')
+        .addStringOption(opt =>
+            opt.setName('game')
+                .setDescription('Link game Roblox atau Place ID target (Contoh: https://roblox.com/games/4924922222)')
+                .setRequired(true)
+        )
+        .addStringOption(opt =>
+            opt.setName('asset_id')
+                .setDescription('ID Audio Roblox (pisahkan koma jika banyak), atau ketik "all" untuk SEMUA lagu kamu')
+                .setRequired(false)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('vip')
+        .setDescription('Lihat daftar harga paket VIP Spoofer & cara pembelian'),
+
+    new SlashCommandBuilder()
         .setName('addvip')
         .setDescription('👑 [Owner] Tambah masa aktif VIP untuk user Discord')
         .addUserOption(opt =>
@@ -261,6 +279,85 @@ async function fetchRobloxUser(userId) {
         }
     } catch {}
     return null;
+}
+
+// Helper fetch all audio assets owned by a Roblox user
+async function fetchUserAllAudios(userId, maxCount = 100) {
+    if (!userId) return [];
+    let allIds = [];
+    let cursor = '';
+    while (allIds.length < maxCount) {
+        const curParam = cursor ? '&cursor=' + encodeURIComponent(cursor) : '';
+        const url = `https://apis.roblox.com/toolbox-service/v1/marketplace/3?creatorId=${userId}&num=50${curParam}`;
+        try {
+            const r = await fetch(url, { headers: { 'User-Agent': 'Roblox/WinInet' } });
+            if (!r.ok) break;
+            const d = await r.json();
+            const ids = (d.data || []).map(x => String(x.id));
+            if (!ids.length) break;
+            allIds.push(...ids);
+            if (!d.nextPageCursor) break;
+            cursor = d.nextPageCursor;
+        } catch { break; }
+    }
+    return [...new Set(allIds)].slice(0, maxCount);
+}
+
+// Helper grant asset permissions via Roblox Open Cloud API
+async function grantAudioPermissions(apiKey, universeId, assetIds) {
+    if (!assetIds || assetIds.length === 0) return { success: false, error: 'Tidak ada Asset ID yang diberikan.' };
+
+    const BATCH_SIZE = 50;
+    let totalSuccess = 0;
+    let failedReason = null;
+
+    for (let i = 0; i < assetIds.length; i += BATCH_SIZE) {
+        const chunk = assetIds.slice(i, i + BATCH_SIZE);
+        const requests = chunk.map(aid => ({
+            assetId: String(aid),
+            subject: {
+                subjectType: 'Universe',
+                subjectId: String(universeId)
+            },
+            action: 'Use'
+        }));
+
+        try {
+            const res = await fetch('https://apis.roblox.com/asset-permissions-api/v1/assets/permissions', {
+                method: 'PATCH',
+                headers: {
+                    'x-api-key': apiKey,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ requests })
+            });
+
+            if (res.ok) {
+                totalSuccess += chunk.length;
+            } else {
+                const body = await res.text();
+                if (res.status === 403 || res.status === 401) {
+                    return {
+                        success: false,
+                        error: 'API Key kamu belum memiliki izin **Asset Permissions (Write)**!\n\n**Cara Mengaktifkan:**\n1. Buka [Roblox Creator Hub](https://create.roblox.com/dashboard/credentials)\n2. Klik tombol Edit pada API Key kamu\n3. Di bagian **Access Permissions**, centang **Asset Permissions** ➔ pilih **Write**\n4. Klik **Save Changes** lalu coba lagi!'
+                    };
+                }
+                failedReason = `HTTP ${res.status}: ${body.slice(0, 100)}`;
+            }
+        } catch (e) {
+            failedReason = e.message;
+        }
+    }
+
+    if (totalSuccess === 0 && failedReason) {
+        return { success: false, error: failedReason };
+    }
+
+    return {
+        success: true,
+        totalSuccess,
+        totalRequested: assetIds.length
+    };
 }
 
 const OWNER_DISCORD_ID = '1309112913331748915';
@@ -744,13 +841,13 @@ async function sendQuotaExceededReply(interaction) {
                 inline: false
             },
             {
-                name: '📦 Pilihan Durasi Paket VIP',
+                name: '💎 Daftar Harga Paket VIP',
                 value: (
-                    '• ⚡ **3 Hari:** Paket Hemat / Trial\n' +
-                    '• 📅 **7 Hari:** Paket 1 Minggu\n' +
-                    '• 🌟 **30 Hari:** Paket 1 Bulan\n' +
-                    '• 👑 **Custom:** Bebas tentukan durasi\n' +
-                    '*Chat/DM Owner untuk pembelian & aktivasi instant!*'
+                    '• ⚡ **Rp 15.000** ➔ **3 HARI** *(Paket Hemat)*\n' +
+                    '• 📅 **Rp 30.000** ➔ **1 MINGGU** *(Paket Populer)*\n' +
+                    '• 🌟 **Rp 60.000** ➔ **1 BULAN** *(Paket Best Value)*\n' +
+                    '• 👑 **Rp 100.000** ➔ **2 BULAN** *(Paket Sultan)*\n' +
+                    '*Klik tombol di bawah untuk langsung DM Owner & aktivasi instant!*'
                 ),
                 inline: false
             }
@@ -822,13 +919,13 @@ async function sendVipOnlyReply(interaction) {
                 inline: false
             },
             {
-                name: '📦 Pilihan Durasi Paket VIP',
+                name: '💎 Daftar Harga Paket VIP',
                 value: (
-                    '• ⚡ **3 Hari:** Paket Hemat / Trial\n' +
-                    '• 📅 **7 Hari:** Paket 1 Minggu\n' +
-                    '• 🌟 **30 Hari:** Paket 1 Bulan\n' +
-                    '• 👑 **Custom:** Bebas tentukan durasi\n' +
-                    '*Klik tombol di bawah untuk langsung DM Owner!*'
+                    '• ⚡ **Rp 15.000** ➔ **3 HARI** *(Paket Hemat)*\n' +
+                    '• 📅 **Rp 30.000** ➔ **1 MINGGU** *(Paket Populer)*\n' +
+                    '• 🌟 **Rp 60.000** ➔ **1 BULAN** *(Paket Best Value)*\n' +
+                    '• 👑 **Rp 100.000** ➔ **2 BULAN** *(Paket Sultan)*\n' +
+                    '*Klik tombol di bawah untuk langsung DM Owner & aktivasi instant!*'
                 ),
                 inline: false
             }
@@ -1568,6 +1665,161 @@ client.on('interactionCreate', async (interaction) => {
             content: `✅ Status VIP untuk <@${targetUser.id}> (\`${targetUser.id}\`) telah berhasil dicabut.`,
             ephemeral: true
         });
+    }
+
+    // === /vip (Price List VIP) ===
+    if (commandName === 'vip') {
+        let ownerUser = null;
+        try {
+            ownerUser = await client.users.fetch(OWNER_DISCORD_ID);
+        } catch {}
+        const ownerName = ownerUser ? (ownerUser.globalName || ownerUser.username) : 'Owner';
+        const ownerAvatar = ownerUser ? ownerUser.displayAvatarURL({ dynamic: true, size: 512 }) : null;
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel(`💬 Chat / DM ${ownerName} (Beli VIP)`)
+                .setStyle(ButtonStyle.Link)
+                .setURL(`https://discord.com/users/${OWNER_DISCORD_ID}`)
+                .setEmoji('💎')
+        );
+
+        const embed = new EmbedBuilder()
+            .setColor('#f1c40f')
+            .setTitle('👑 DAFTAR HARGA & PAKET VIP SPOOFER BOT')
+            .setDescription(
+                `Dapatkan akses tanpa batas ke semua fitur eksklusif bot spoofer Roblox!\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                `### 💎 PRICE LIST RESMI VIP:\n` +
+                `• ⚡ **Rp 15.000** ➔ **3 HARI** *(Paket Hemat / Trial)*\n` +
+                `• 📅 **Rp 30.000** ➔ **1 MINGGU** *(Paket Populer)*\n` +
+                `• 🌟 **Rp 60.000** ➔ **1 BULAN** *(Paket Best Seller)*\n` +
+                `• 👑 **Rp 100.000** ➔ **2 BULAN** *(Paket Sultan Hemat)*\n\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `### 🚀 KEUNTUNGAN MEMBER VIP:\n` +
+                `✅ **Unlimited Kuota Harian** (Bypass & upload tanpa batas harian)\n` +
+                `✅ **Game Sound Ripper** (\`/gamesoundriperaudio\` hingga 100 lagu per game)\n` +
+                `✅ **Game Dance Ripper** (\`/gamesoundriperdance\` rip 23+ animasi dance & emote)\n` +
+                `✅ **Trending Assets Hub** (\`/trending\` 1-klik spoof lagu & dance viral)\n` +
+                `✅ **Audio Permission Granter** (\`/grantmusic\` unlock semua lagu ke game orang lain)\n` +
+                `✅ **Prioritas Antrean #1** (Langsung diproses tanpa antre)\n` +
+                `✅ **High-Quality 320kbps YouTube Uploader**\n\n` +
+                `💳 **Metode Pembayaran:**\n` +
+                `\`DANA / GoPay / OVO / ShopeePay / QRIS / Bank Transfer\``
+            )
+            .addFields({
+                name: '👑 Akun Resmi Owner Untuk Transaksi',
+                value: `**Mention:** <@${OWNER_DISCORD_ID}>\n**Username:** \`${ownerName}\`\n**User ID:** \`${OWNER_DISCORD_ID}\``,
+                inline: false
+            })
+            .setFooter({
+                text: `Klik tombol di bawah untuk langsung membuka chat/DM ke ${ownerName}`,
+                iconURL: ownerAvatar || undefined
+            })
+            .setTimestamp();
+
+        if (ownerAvatar) {
+            embed.setThumbnail(ownerAvatar);
+            embed.setAuthor({
+                name: `${ownerName} (Official Spoofer Owner)`,
+                iconURL: ownerAvatar,
+                url: `https://discord.com/users/${OWNER_DISCORD_ID}`
+            });
+        }
+
+        return interaction.reply({ embeds: [embed], components: [row] });
+    }
+
+    // === /grantmusic (Khusus VIP) ===
+    if (commandName === 'grantmusic') {
+        const check = users.canUse(discordId);
+        if (check.role !== 'vip') {
+            return sendVipOnlyReply(interaction);
+        }
+        if (!check.ok) {
+            if (check.reason === 'no_account' || check.reason === 'not_registered') {
+                return interaction.reply({
+                    content: '⚠️ **Kamu belum menghubungkan akun Roblox uploader!**\nGunakan `/setup` terlebih dahulu.',
+                    ephemeral: true
+                });
+            }
+            if (check.reason === 'banned') {
+                return interaction.reply({ content: '🚫 Akun kamu diblokir.', ephemeral: true });
+            }
+        }
+
+        const rawGame = interaction.options.getString('game');
+        const rawAssetId = interaction.options.getString('asset_id');
+        const userObj = check.user;
+
+        const placeId = parsePlaceId(rawGame);
+        if (!placeId) {
+            return interaction.reply({
+                content: '❌ **Link game atau Place ID tidak valid!** Masukkan link game Roblox atau Place ID target (contoh: `https://roblox.com/games/4924922222` atau `4924922222`).',
+                ephemeral: true
+            });
+        }
+
+        await interaction.deferReply();
+
+        const game = await getGameDetails(placeId);
+        if (!game || !game.universeId) {
+            return interaction.editReply({
+                content: '❌ **Gagal menemukan game Roblox tersebut!** Pastikan game publik dan Place ID benar.'
+            });
+        }
+
+        let targetIds = [];
+        let isAll = false;
+
+        if (rawAssetId && rawAssetId.trim().toLowerCase() !== 'all') {
+            const matches = rawAssetId.match(/\b\d{5,16}\b/g);
+            if (matches && matches.length > 0) {
+                targetIds = [...new Set(matches)];
+            }
+        }
+
+        // Jika tidak memasukkan asset_id atau mengetik "all", scan SEMUA lagu akun user di Creator Hub
+        if (targetIds.length === 0) {
+            isAll = true;
+            targetIds = await fetchUserAllAudios(userObj.user_id, 100);
+        }
+
+        if (targetIds.length === 0) {
+            return interaction.editReply({
+                content: `⚠️ **Tidak ada lagu yang ditemukan di akun Roblox kamu!**\nPastikan kamu sudah pernah meng-upload audio ke akun \`@${userObj.roblox_username}\`, atau masukkan ID lagu spesifik di opsi \`asset_id\`.`
+            });
+        }
+
+        const permRes = await grantAudioPermissions(userObj.api_key, game.universeId, targetIds);
+        if (!permRes.success) {
+            return interaction.editReply({
+                content: `❌ **Gagal memberikan izin:**\n${permRes.error}`
+            });
+        }
+
+        const previewList = targetIds.slice(0, 10).map(id => `• \`${id}\``).join('  ');
+        const moreText = targetIds.length > 10 ? `\n_...dan **${targetIds.length - 10}** lagu lainnya_` : '';
+
+        const embed = new EmbedBuilder()
+            .setColor('#2ecc71')
+            .setTitle('🔊 IZIN AUDIO ROBLOX BERHASIL DIBERIKAN!')
+            .setDescription(
+                `Semua audio yang dipilih sekarang **sudah sah & diizinkan** untuk diputar di game target tanpa error permission!\n\n` +
+                `🎮 **Game Target:** [${game.name}](https://www.roblox.com/games/${placeId})\n` +
+                `👤 **Developer Game:** \`${game.creator}\`\n` +
+                `🆔 **Universe ID:** \`${game.universeId}\`  |  **Place ID:** \`${placeId}\`\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `🎵 **Total Audio Diizinkan:** **${permRes.totalSuccess} Lagu** ${isAll ? '(Semua Lagu di Akun Kamu)' : ''}\n` +
+                `📋 **Daftar ID Audio:**\n${previewList}${moreText}\n\n` +
+                `⚡ **Status In-Game:** **100% Aktif** (Lagu langsung bisa dibunyikan in-game/boombox/script)`
+            )
+            .setFooter({ text: `Akun Roblox: @${userObj.roblox_username} • Fitur Eksklusif VIP` })
+            .setTimestamp();
+
+        if (game.iconUrl) embed.setThumbnail(game.iconUrl);
+
+        return interaction.editReply({ embeds: [embed] });
     }
 });
 
