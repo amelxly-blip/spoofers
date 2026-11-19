@@ -413,13 +413,25 @@ async function grantAudioPermissions(apiKey, universeId, assetIds) {
                 totalSuccess += chunk.length;
             } else {
                 const body = await res.text();
+                let detail = '';
+                try {
+                    const parsed = JSON.parse(body);
+                    detail = parsed.message || parsed.error?.message || parsed.errors?.[0]?.message || body;
+                } catch {
+                    detail = body;
+                }
+
                 if (res.status === 403 || res.status === 401) {
                     return {
                         success: false,
-                        error: 'API Key kamu belum memiliki izin **Asset Permissions (Write)**!\n\n**Cara Mengaktifkan:**\n1. Buka [Roblox Creator Hub](https://create.roblox.com/dashboard/credentials)\n2. Klik tombol Edit pada API Key kamu\n3. Di bagian **Access Permissions**, centang **Asset Permissions** ➔ pilih **Write**\n4. Klik **Save Changes** lalu coba lagi!'
+                        error: `API Key kamu ditolak oleh Roblox (HTTP ${res.status}):\n\`${detail.slice(0, 200)}\`\n\n` +
+                               `**Pastikan 3 Hal Ini di Creator Hub:**\n` +
+                               `1. **Cukup 1 API Key**: Klik **Add API System** ➔ pilih **Asset Permissions** ➔ centang **Write**.\n` +
+                               `2. **Creator Cocok**: Jika lagu ada di Group, buat API Key di dalam Group tersebut (bukan Akun Pribadi).\n` +
+                               `3. **IP Restrictions**: Pilih **0.0.0.0/0** (Allow all IP addresses) agar tidak diblokir IP.`
                     };
                 }
-                failedReason = `HTTP ${res.status}: ${body.slice(0, 100)}`;
+                failedReason = `HTTP ${res.status}: ${detail.slice(0, 150)}`;
             }
         } catch (e) {
             failedReason = e.message;
