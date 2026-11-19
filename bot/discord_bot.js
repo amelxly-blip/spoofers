@@ -388,14 +388,12 @@ async function grantAudioPermissions(apiKey, universeId, assetIds) {
 
     for (let i = 0; i < assetIds.length; i += BATCH_SIZE) {
         const chunk = assetIds.slice(i, i + BATCH_SIZE);
-        const requests = chunk.map(aid => ({
-            assetId: String(aid),
-            subject: {
-                subjectType: 'Universe',
-                subjectId: String(universeId)
-            },
-            action: 'Use'
-        }));
+        const payload = {
+            subjectType: 'Universe',
+            subjectId: String(universeId),
+            action: 'Use',
+            requests: chunk.map(aid => ({ assetId: Number(aid) || aid }))
+        };
 
         try {
             const controller = new AbortController();
@@ -406,7 +404,7 @@ async function grantAudioPermissions(apiKey, universeId, assetIds) {
                     'x-api-key': apiKey,
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ requests }),
+                body: JSON.stringify(payload),
                 signal: controller.signal
             });
             clearTimeout(timeoutId);

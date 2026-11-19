@@ -344,28 +344,27 @@ async def grant_asset_permissions(session, aid, key, target_id, creator_type='Us
         except: pass
 
         if universe_ids:
-            perm_requests = []
-            for uid in universe_ids:
-                perm_requests.append({
-                    "assetId": str(aid),
-                    "subject": {
-                        "subjectType": "Universe",
-                        "subjectId": str(uid)
-                    },
-                    "action": "Use"
-                })
-
             headers = {
                 "x-api-key": key,
                 "Content-Type": "application/json"
             }
-            async with session.patch(
-                "https://apis.roblox.com/asset-permissions-api/v1/assets/permissions",
-                headers=headers,
-                json={"requests": perm_requests},
-                timeout=aiohttp.ClientTimeout(total=15)
-            ) as pr:
-                pass
+            parsed_aid = int(aid) if str(aid).isdigit() else aid
+            for uid in universe_ids:
+                payload = {
+                    "subjectType": "Universe",
+                    "subjectId": str(uid),
+                    "action": "Use",
+                    "requests": [{"assetId": parsed_aid}]
+                }
+                try:
+                    async with session.patch(
+                        "https://apis.roblox.com/asset-permissions-api/v1/assets/permissions",
+                        headers=headers,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=15)
+                    ) as pr:
+                        pass
+                except: pass
     except: pass
 
 async def process_speed_or_convert(file_path, speed_val, save_dir, aid, is_audio=True):
@@ -594,13 +593,22 @@ async def grant_asset_permissions(session, aid, key, target_id, creator_type='Us
         except: pass
 
         if universe_ids:
-            perm_requests = [{"assetId": str(aid), "subject": {"subjectType": "Universe", "subjectId": str(uid)}, "action": "Use"} for uid in universe_ids]
-            await session.patch(
-                "https://apis.roblox.com/asset-permissions-api/v1/assets/permissions",
-                headers={"x-api-key": key, "Content-Type": "application/json"},
-                json={"requests": perm_requests},
-                timeout=aiohttp.ClientTimeout(total=15)
-            )
+            parsed_aid = int(aid) if str(aid).isdigit() else aid
+            for uid in universe_ids:
+                payload = {
+                    "subjectType": "Universe",
+                    "subjectId": str(uid),
+                    "action": "Use",
+                    "requests": [{"assetId": parsed_aid}]
+                }
+                try:
+                    await session.patch(
+                        "https://apis.roblox.com/asset-permissions-api/v1/assets/permissions",
+                        headers={"x-api-key": key, "Content-Type": "application/json"},
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=15)
+                    )
+                except: pass
     except: pass
 
 async def upload_audio(file_path, key, target_id, title, creator_type='User'):
