@@ -21,7 +21,8 @@ _DEFAULT_SEEDS = [
     125981614068947, 112742012181598, 6872265039,
     5765186170, 3271915715, 4483381587, 7415484388,
     4924922222, 2788229376, 13772394625, 2753915549,
-    142823291, 6516141723, 987229334
+    142823291, 6516141723, 987229334,
+    112171352246014, 79312497897212, 84941114749290, 137183199888955
 ]
 
 def load_place_cache():
@@ -178,14 +179,50 @@ async def download_asset(session, aid, save_dir, source_place_id=None):
                             places_to_try.insert(0, g['rootPlace']['id'])
         except: pass
     elif c_type == "Group" and c_id:
+        group_places_found = False
         for f_param in ["accessFilter=1", "accessFilter=All", "accessFilter=Public"]:
             try:
                 async with session.get(f"https://games.roblox.com/v2/groups/{c_id}/games?{f_param}&limit=25&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=10)) as r:
                     if r.status == 200:
-                        for g in (await r.json(content_type=None)).get('data', []):
-                            if g.get('rootPlace', {}).get('id'):
-                                places_to_try.insert(0, g['rootPlace']['id'])
-                        break
+                        data_games = (await r.json(content_type=None)).get('data', [])
+                        if data_games:
+                            for g in data_games:
+                                if g.get('rootPlace', {}).get('id'):
+                                    places_to_try.insert(0, g['rootPlace']['id'])
+                            group_places_found = True
+                            break
+            except: pass
+
+        # Deep discovery: Jika grup penyimpanan tidak punya game publik, lacak game owner & grup terkait
+        if not group_places_found:
+            try:
+                async with session.get(f"https://groups.roblox.com/v1/groups/{c_id}", timeout=aiohttp.ClientTimeout(total=8)) as gr_res:
+                    if gr_res.status == 200:
+                        gr_info = await gr_res.json(content_type=None)
+                        owner_id = gr_info.get('owner', {}).get('userId')
+                        if owner_id:
+                            try:
+                                async with session.get(f"https://games.roblox.com/v2/users/{owner_id}/games?accessFilter=Public&limit=25&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=8)) as og_r:
+                                    if og_r.status == 200:
+                                        for g in (await og_r.json(content_type=None)).get('data', []):
+                                            if g.get('rootPlace', {}).get('id'):
+                                                places_to_try.insert(0, g['rootPlace']['id'])
+                            except: pass
+                            try:
+                                async with session.get(f"https://groups.roblox.com/v1/users/{owner_id}/groups/roles", timeout=aiohttp.ClientTimeout(total=8)) as roles_r:
+                                    if roles_r.status == 200:
+                                        roles_data = (await roles_r.json(content_type=None)).get('data', [])
+                                        for rd in roles_data[:6]:
+                                            other_gid = rd.get('group', {}).get('id')
+                                            if other_gid and str(other_gid) != str(c_id):
+                                                try:
+                                                    async with session.get(f"https://games.roblox.com/v2/groups/{other_gid}/games?accessFilter=1&limit=25&sortOrder=Asc", timeout=aiohttp.ClientTimeout(total=8)) as ogg_r:
+                                                        if ogg_r.status == 200:
+                                                            for g in (await ogg_r.json(content_type=None)).get('data', []):
+                                                                if g.get('rootPlace', {}).get('id'):
+                                                                    places_to_try.insert(0, g['rootPlace']['id'])
+                                                except: pass
+                            except: pass
             except: pass
 
     # 3. Coba bypass dengan semua place id (v2 CDN & v1 fallback)

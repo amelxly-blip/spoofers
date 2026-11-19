@@ -119,6 +119,11 @@ const commands = [
             opt.setName('asset_id')
                 .setDescription('Roblox Asset ID (bisa beberapa ID dipisah koma/spasi)')
                 .setRequired(true)
+        )
+        .addStringOption(opt =>
+            opt.setName('game')
+                .setDescription('Link game atau Place ID sumber aset (Opsional, agar bypass audio private tembus)')
+                .setRequired(false)
         ),
 
     new SlashCommandBuilder()
@@ -1627,6 +1632,8 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         const rawIds = interaction.options.getString('asset_id');
+        const rawGame = interaction.options.getString('game');
+        const sourcePlaceId = rawGame ? parsePlaceId(rawGame) : null;
         const ids = rawIds.split(/[\r\n,\s]+/).map(x => x.trim()).filter(x => /^\d+$/.test(x));
         if (!ids.length) {
             return interaction.reply({ content: '❌ **Format Asset ID tidak valid!** Masukkan angka ID yang benar.', ephemeral: true });
@@ -1641,6 +1648,7 @@ client.on('interactionCreate', async (interaction) => {
             ids,
             userObj,
             isVip,
+            sourcePlaceId,
             isYT: false
         });
 
