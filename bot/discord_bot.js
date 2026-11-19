@@ -95,12 +95,19 @@ async function processQueue() {
 
 function enqueueTask(taskFn, isVip = false) {
     if (isVip) {
-        // VIP langsung di depan antrean
-        taskQueue.unshift(taskFn);
-    } else {
-        // Free user mengantre di belakang
-        taskQueue.push(taskFn);
+        // VIP JALUR EKSKLUSIF: Langsung dieksekusi instan tanpa antre!
+        (async () => {
+            try {
+                await taskFn();
+            } catch (err) {
+                console.error('[VIP Instant Execution Error]', err);
+            }
+        })();
+        return;
     }
+
+    // Free user mengantre di queue satu per satu
+    taskQueue.push(taskFn);
     processQueue();
 }
 
@@ -572,16 +579,19 @@ function buildSpeedUI(sessionId, titleText) {
 
 async function executeSpoofTask(interaction, session, speedVal, assetType) {
     const { discordId, ids, userObj, isVip } = session;
-    const position = isVip ? 'Prioritas VIP ⚡' : `${taskQueue.length + 1}`;
+    const position = `${taskQueue.length + 1}`;
+    const embedColor = isVip ? '#f1c40f' : '#e67e22';
+    const embedTitle = isVip ? '⚡ MEMPROSES SPOOF (VIP PRIORITAS INSTAN)' : '⏳ MEMASUKKAN KE ANTREAN SPOOF';
+    const statusVal = isVip ? '🌟 **VIP Member — Diproses Detik Ini Tanpa Antre!**' : `Posisi Antrean: **#${position}**`;
 
     await interaction.update({
         embeds: [
             new EmbedBuilder()
-                .setColor('#e67e22')
-                .setTitle('⏳ MEMASUKKAN KE ANTREAN SPOOF')
+                .setColor(embedColor)
+                .setTitle(embedTitle)
                 .setDescription(`Asset ID: \`${ids.join(', ')}\`\nSpeed: \`${speedVal}x\` | Tipe: \`${assetType.toUpperCase()}\``)
                 .addFields(
-                    { name: 'Status Antrean', value: isVip ? '🌟 **VIP (Langsung Diproses)**' : `Posisi Antrean: **#${position}**`, inline: true }
+                    { name: 'Status Pemrosesan', value: statusVal, inline: true }
                 )
         ],
         components: []
@@ -729,16 +739,19 @@ async function executeSpoofTask(interaction, session, speedVal, assetType) {
 async function executeYTUploadTask(interaction, session, speedVal) {
     const { discordId, urls, userObj, isVip } = session;
     const total = urls.length;
-    const position = isVip ? 'Prioritas VIP ⚡' : `${taskQueue.length + 1}`;
+    const position = `${taskQueue.length + 1}`;
+    const embedColor = isVip ? '#f1c40f' : '#e67e22';
+    const embedTitle = isVip ? '⚡ MEMPROSES YOUTUBE UPLOAD (VIP PRIORITAS INSTAN)' : '⏳ MEMASUKKAN KE ANTREAN YOUTUBE UPLOAD';
+    const statusVal = isVip ? '🌟 **VIP Member — Diproses Detik Ini Tanpa Antre!**' : `Posisi Antrean: **#${position}**`;
 
     await interaction.update({
         embeds: [
             new EmbedBuilder()
-                .setColor('#e67e22')
-                .setTitle('⏳ MEMASUKKAN KE ANTREAN YOUTUBE UPLOAD')
+                .setColor(embedColor)
+                .setTitle(embedTitle)
                 .setDescription(`Jumlah Link: **${urls.length} audio**\nSpeed Bypass: \`${speedVal}x\` (High Pitch)`)
                 .addFields(
-                    { name: 'Status Antrean', value: isVip ? '🌟 **VIP (Langsung Diproses)**' : `Posisi Antrean: **#${position}**`, inline: true }
+                    { name: 'Status Pemrosesan', value: statusVal, inline: true }
                 )
         ],
         components: []
