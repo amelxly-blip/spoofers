@@ -3,6 +3,24 @@ const path = require('path');
 const USERS_DIR = path.join(__dirname, 'users');
 if (!fs.existsSync(USERS_DIR)) fs.mkdirSync(USERS_DIR, { recursive: true });
 
+const VIP_EVENTS_FILE = path.join(__dirname, 'vip_events.json');
+
+function recordVipEvent(event) {
+    let events = [];
+    try {
+        if (fs.existsSync(VIP_EVENTS_FILE)) {
+            events = JSON.parse(fs.readFileSync(VIP_EVENTS_FILE, 'utf8'));
+            if (!Array.isArray(events)) events = [];
+        }
+    } catch {}
+    events.push(event);
+    try {
+        fs.writeFileSync(VIP_EVENTS_FILE, JSON.stringify(events, null, 2));
+    } catch (e) {
+        console.error('[Error recording VIP event]', e);
+    }
+}
+
 function getUserFile(discordId) {
     return path.join(USERS_DIR, `${discordId}.json`);
 }
@@ -108,14 +126,40 @@ function useQuota(discordId, count = 1) {
 
 function addVIP(discordId, days = 30) {
     let user = getUser(discordId) || createUser(discordId);
+    const wasAlreadyVip = user.role === 'vip' && user.vip_until && new Date(user.vip_until) > new Date();
+
+    let baseDate = new Date();
+    if (wasAlreadyVip) {
+        baseDate = new Date(user.vip_until);
+    }
+
+    baseDate.setDate(baseDate.getDate() + parseInt(days, 10));
     user.role = 'vip';
-    const until = new Date();
-    until.setDate(until.getDate() + parseInt(days, 10));
-    user.vip_until = until.toISOString();
+    user.vip_until = baseDate.toISOString();
     user.quota.limit = 999999;
     user.quota.used = 0;
     saveUser(discordId, user);
-    return user;
+
+    const totalDaysLeft = Math.max(1, Math.ceil((baseDate - new Date()) / (1000 * 60 * 60 * 24)));
+
+    const eventData = {
+        discordId: String(discordId),
+        tag: user.tag || '',
+        wasAlreadyVip,
+        addedDays: parseInt(days, 10),
+        totalDaysLeft,
+        vip_until: user.vip_until,
+        timestamp: Date.now()
+    };
+
+    recordVipEvent(eventData);
+
+    return {
+        ...user,
+        wasAlreadyVip,
+        addedDays: parseInt(days, 10),
+        totalDaysLeft
+    };
 }
 
 function removeVIP(discordId) {

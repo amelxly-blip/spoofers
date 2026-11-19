@@ -25,15 +25,36 @@ const { parsePlaceId, ripGame, getTrending, getGameDetails } = require('./game_r
 const CONFIG_PATH = path.join(require('os').homedir(), '.bot_config');
 let BOT_TOKEN = process.env.DISCORD_TOKEN || '';
 let CLIENT_ID = process.env.DISCORD_CLIENT_ID || '';
+let VIP_CHANNEL_ID = process.env.VIP_CHANNEL_ID || '';
 
 if (fs.existsSync(CONFIG_PATH)) {
     try {
         const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
         const tokenMatch = raw.match(/DISCORD_TOKEN="?([^"\n\r]+)"?/);
         const clientMatch = raw.match(/DISCORD_CLIENT_ID="?([^"\n\r]+)"?/);
+        const vipChanMatch = raw.match(/VIP_CHANNEL_ID="?([^"\n\r]+)"?/);
         if (tokenMatch) BOT_TOKEN = tokenMatch[1].trim();
         if (clientMatch) CLIENT_ID = clientMatch[1].trim();
+        if (vipChanMatch) VIP_CHANNEL_ID = vipChanMatch[1].trim();
     } catch {}
+}
+
+function saveVipChannelConfig(channelId) {
+    VIP_CHANNEL_ID = String(channelId).trim();
+    try {
+        let content = '';
+        if (fs.existsSync(CONFIG_PATH)) {
+            content = fs.readFileSync(CONFIG_PATH, 'utf8');
+        }
+        if (/VIP_CHANNEL_ID=/.test(content)) {
+            content = content.replace(/VIP_CHANNEL_ID="?[^"\n\r]*"?/, `VIP_CHANNEL_ID="${VIP_CHANNEL_ID}"`);
+        } else {
+            content += `\nVIP_CHANNEL_ID="${VIP_CHANNEL_ID}"\n`;
+        }
+        fs.writeFileSync(CONFIG_PATH, content.trim() + '\n', 'utf8');
+    } catch (e) {
+        console.error('[Error saving VIP_CHANNEL_ID config]', e);
+    }
 }
 
 if (!BOT_TOKEN) {
@@ -109,6 +130,109 @@ function enqueueTask(taskFn, isVip = false) {
     // Free user mengantre di queue satu per satu
     taskQueue.push(taskFn);
     processQueue();
+}
+
+// ==========================================
+// VIP NOTIFICATION & ANNOUNCEMENT SYSTEM
+// ==========================================
+const VIP_EVENTS_FILE = path.join(__dirname, 'vip_events.json');
+
+async function sendVipAnnouncement(event) {
+    const { discordId, wasAlreadyVip, addedDays, totalDaysLeft, vip_until } = event;
+    try {
+        let channel = null;
+        if (VIP_CHANNEL_ID) {
+            try {
+                channel = await client.channels.fetch(VIP_CHANNEL_ID);
+            } catch {}
+        }
+
+        // Jika channel khusus belum diset, cari channel di server secara otomatis
+        if (!channel) {
+            for (const [, guild] of client.guilds.cache) {
+                const textChannels = guild.channels.cache.filter(c => c.isTextBased() && c.permissionsFor(guild.members.me || client.user)?.has('SendMessages'));
+                channel = textChannels.find(c => /vip|announcement|pengumuman|transaksi|order/i.test(c.name))
+                       || textChannels.find(c => /general|chat|utama/i.test(c.name))
+                       || textChannels.first();
+                if (channel) break;
+            }
+        }
+
+        if (!channel) {
+            console.warn('[VIP Announcement] Tidak menemukan channel untuk mengirim pengumuman VIP.');
+            return;
+        }
+
+        let targetUser = null;
+        try {
+            targetUser = await client.users.fetch(discordId);
+        } catch {}
+
+        const nameDisplay = targetUser ? (targetUser.globalName || targetUser.username) : `User (${discordId})`;
+        const avatarUrl = targetUser ? targetUser.displayAvatarURL({ dynamic: true, size: 256 }) : null;
+        const timestampUntil = Math.floor(new Date(vip_until).getTime() / 1000);
+
+        const embed = new EmbedBuilder()
+            .setColor('#f1c40f')
+            .setTimestamp();
+
+        if (avatarUrl) embed.setThumbnail(avatarUrl);
+
+        if (wasAlreadyVip) {
+            embed.setTitle('🎉 PERPANJANGAN VIP BERHASIL!')
+                .setDescription(
+                    `Selamat kepada <@${discordId}> (**${nameDisplay}**)!\n` +
+                    `Telah berhasil **memperpanjang masa aktif VIP**.\n\n` +
+                    `👑 **Status Langganan:** 🌟 **VIP Member (Aktif)**\n` +
+                    `⚡ **Durasi Ditambahkan:** **+${addedDays} Hari**\n` +
+                    `⏳ **Total Masa Aktif VIP Sekarang:** **${totalDaysLeft} Hari**\n` +
+                    `📅 **Berlaku Hingga:** <t:${timestampUntil}:F> (<t:${timestampUntil}:R>)\n\n` +
+                    `Terima kasih telah memperpanjang VIP! Nikmati akses tanpa batas, ripper game audio/dance, dan bypass super cepat! 🚀`
+                )
+                .setFooter({ text: 'Perpanjangan VIP Berhasil • Roblox Spoofer VIP' });
+        } else {
+            embed.setTitle('👑 SELAMAT DATANG MEMBER VIP BARU!')
+                .setDescription(
+                    `Selamat kepada <@${discordId}> (**${nameDisplay}**)!\n` +
+                    `Telah resmi **bergabung menjadi Member VIP** kami.\n\n` +
+                    `👑 **Role:** 🌟 **VIP Member**\n` +
+                    `⏳ **Durasi Pembelian:** **${addedDays} Hari**\n` +
+                    `📅 **Masa Aktif Hingga:** <t:${timestampUntil}:F> (<t:${timestampUntil}:R>)\n\n` +
+                    `Nikmati keuntungan eksklusif:\n` +
+                    `✅ **Unlimited Kuota Harian** (Bypass tanpa limit)\n` +
+                    `✅ **Game Sound Ripper** (/gamesoundriperaudio)\n` +
+                    `✅ **Game Dance Ripper** (/gamesoundriperdance)\n` +
+                    `✅ **Prioritas Instan #1** (Tanpa antrean)`
+                )
+                .setFooter({ text: 'Pembelian VIP Berhasil • Roblox Spoofer VIP' });
+        }
+
+        await channel.send({
+            content: `🎊 Selamat kepada <@${discordId}>! Terima kasih telah membeli/memperpanjang VIP! 🌟`,
+            embeds: [embed]
+        });
+        console.log(`[VIP Announcement] Berhasil mengirim pengumuman VIP untuk user ${discordId} di #${channel.name}`);
+    } catch (err) {
+        console.error('[VIP Announcement Error]', err);
+    }
+}
+
+// Background poller membaca event VIP yang dipicu dari panel.sh
+function startVipEventListener() {
+    setInterval(async () => {
+        if (!client.isReady()) return;
+        if (!fs.existsSync(VIP_EVENTS_FILE)) return;
+        try {
+            const raw = fs.readFileSync(VIP_EVENTS_FILE, 'utf8');
+            const events = JSON.parse(raw);
+            if (Array.isArray(events) && events.length > 0) {
+                fs.writeFileSync(VIP_EVENTS_FILE, JSON.stringify([], null, 2));
+                for (const ev of events) {
+                    await sendVipAnnouncement(ev);
+                }
+            }
+        } catch (e) {}
+    }, 2500);
 }
 
 // ==========================================
@@ -241,6 +365,15 @@ const commands = [
         .addUserOption(opt =>
             opt.setName('user')
                 .setDescription('User Discord yang ingin dicabut status VIP-nya')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('setvipchannel')
+        .setDescription('👑 [Owner] Atur channel pengumuman pembelian / perpanjangan VIP')
+        .addChannelOption(opt =>
+            opt.setName('channel')
+                .setDescription('Pilih channel Discord tempat bot mengirim pesan selamat VIP')
                 .setRequired(true)
         )
 ].map(c => c.toJSON());
@@ -1065,6 +1198,7 @@ client.once('ready', async () => {
     console.log(`[Discord] Bot online as ${client.user.tag}! (ID: ${client.user.id})`);
     await registerCommands(client.user.id);
     client.user.setActivity('/spoof | /setup', { type: 2 });
+    startVipEventListener();
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -1940,21 +2074,38 @@ client.on('interactionCreate', async (interaction) => {
         }
         const targetUser = interaction.options.getUser('user');
         const durasi = interaction.options.getInteger('durasi') || 3;
-        const updated = users.addVIP(targetUser.id, durasi);
+        const resVip = users.addVIP(targetUser.id, durasi);
 
         const embed = new EmbedBuilder()
             .setColor('#2ecc71')
-            .setTitle('👑 VIP BERHASIL DIAKTIFKAN!')
-            .setDescription(`Berhasil memberikan role **VIP Member** kepada <@${targetUser.id}>.`)
+            .setTitle(resVip.wasAlreadyVip ? '👑 VIP BERHASIL DIPERPANJANG!' : '👑 VIP BERHASIL DIAKTIFKAN!')
+            .setDescription(`Berhasil ${resVip.wasAlreadyVip ? 'memperpanjang' : 'memberikan'} status **VIP Member** kepada <@${targetUser.id}>.`)
             .addFields(
                 { name: '👤 User', value: `<@${targetUser.id}> (\`${targetUser.id}\`)`, inline: true },
-                { name: '⏳ Durasi', value: `**${durasi} Hari**`, inline: true },
-                { name: '📅 Masa Aktif S/D', value: `<t:${Math.floor(new Date(updated.vip_until).getTime() / 1000)}:F>`, inline: false }
+                { name: '⏳ Durasi Ditambah', value: `**+${durasi} Hari**`, inline: true },
+                { name: '📊 Total Masa Aktif', value: `**${resVip.totalDaysLeft} Hari**`, inline: true },
+                { name: '📅 Masa Aktif S/D', value: `<t:${Math.floor(new Date(resVip.vip_until).getTime() / 1000)}:F>`, inline: false }
             )
-            .setFooter({ text: 'Aktivasi VIP Berhasil • Status VIP Aktif' })
+            .setFooter({ text: 'Notifikasi pengumuman publik otomatis dikirim ke channel VIP' })
             .setTimestamp();
 
         return interaction.reply({ embeds: [embed] });
+    }
+
+    // === /setvipchannel (Owner Only) ===
+    if (commandName === 'setvipchannel') {
+        if (discordId !== OWNER_DISCORD_ID) {
+            return interaction.reply({
+                content: '⛔ **Akses Ditolak!** Perintah ini khusus untuk Owner bot.',
+                ephemeral: true
+            });
+        }
+        const targetChan = interaction.options.getChannel('channel');
+        saveVipChannelConfig(targetChan.id);
+        return interaction.reply({
+            content: `✅ **Berhasil!** Channel pengumuman VIP telah diatur ke <#${targetChan.id}> (\`${targetChan.id}\`).\nSetiap ada pembelian atau perpanjangan VIP dari panel Termux maupun slash command, bot otomatis mengirim pesan selamat di channel tersebut!`,
+            ephemeral: true
+        });
     }
 
     // === /removevip (Owner Only) ===

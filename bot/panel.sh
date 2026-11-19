@@ -59,6 +59,12 @@ header() {
     else
         echo -e "  Cookie Tumbal: ${RED}✘ Belum diset${NC}"
     fi
+
+    if [ -n "$VIP_CHANNEL_ID" ]; then
+        echo -e "  Channel VIP  : ${GREEN}✔ Terpasang ($VIP_CHANNEL_ID)${NC}"
+    else
+        echo -e "  Channel VIP  : ${YELLOW}Auto-detect (Channel Server)${NC}"
+    fi
     echo -e "${MAGENTA}----------------------------------------------------${NC}"
 }
 
@@ -151,10 +157,43 @@ add_vip() {
 
     node -e "
         const users = require('./users');
-        const u = users.addVIP('$TARGET_UID', $DAYS);
-        console.log('\n  ✔ Sukses! User ID ' + '$TARGET_UID' + ' sekarang VIP selama $DAYS hari.');
-        console.log('  Masa aktif s/d: ' + new Date(u.vip_until).toLocaleDateString('id-ID'));
+        const res = users.addVIP('$TARGET_UID', $DAYS);
+        if (res.wasAlreadyVip) {
+            console.log('\n  ✔ Sukses! User ID ' + '$TARGET_UID' + ' telah DIPERPANJANG VIP +' + $DAYS + ' hari.');
+            console.log('  Total masa aktif sekarang: ' + res.totalDaysLeft + ' hari.');
+        } else {
+            console.log('\n  ✔ Sukses! User ID ' + '$TARGET_UID' + ' sekarang resmi VIP selama ' + $DAYS + ' hari.');
+        }
+        console.log('  Masa aktif s/d: ' + new Date(res.vip_until).toLocaleDateString('id-ID'));
+        console.log('  📢 Pesan pengumuman ucapan selamat otomatis dikirim oleh bot ke Discord!');
     "
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
+    read -r
+    menu_utama
+}
+
+setup_vip_channel() {
+    header
+    echo -e "${WHITE}  SETUP CHANNEL PENGUMUMAN VIP DISCORD${NC}"
+    echo ""
+    echo -e "  Masukkan Channel ID Discord tempat bot mengirim pesan ucapan selamat & pengumuman saat ada pembelian / perpanjangan VIP."
+    echo -e "  (Cara ambil: Klik kanan channel di Discord -> Copy Channel ID)"
+    echo ""
+    echo -ne "  Masukkan Channel ID Discord: "
+    read -r CHAN_INPUT
+    CHAN_INPUT=$(echo "$CHAN_INPUT" | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+    if [ -n "$CHAN_INPUT" ]; then
+        if [ -f "$CONFIG_FILE" ]; then
+            grep -v "VIP_CHANNEL_ID=" "$CONFIG_FILE" > "$CONFIG_FILE.tmp" 2>/dev/null
+            mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+        fi
+        echo "VIP_CHANNEL_ID=\"$CHAN_INPUT\"" >> "$CONFIG_FILE"
+        echo -e "\n${GREEN}  ✔ Channel ID berhasil disimpan ke $CONFIG_FILE!${NC}"
+    else
+        echo -e "\n${RED}  Channel ID tidak boleh kosong!${NC}"
+    fi
     echo ""
     echo -ne "  Tekan Enter untuk kembali..."
     read -r
@@ -312,11 +351,12 @@ menu_utama() {
     echo -e "  ${MAGENTA}[3]${NC} Tambah / Perpanjang VIP User (Discord ID)"
     echo -e "  ${MAGENTA}[4]${NC} Hapus / Cabut VIP User"
     echo -e "  ${MAGENTA}[5]${NC} Cek List Member VIP Aktif"
-    echo -e "  ${GREEN}[6]${NC} Jalankan Bot Discord (Start)"
-    echo -e "  ${RED}[7]${NC} Hentikan Bot Discord (Stop)"
-    echo -e "  ${YELLOW}[8]${NC} Restart Bot Discord"
-    echo -e "  ${WHITE}[9]${NC} Lihat Log Bot (Real-time)"
-    echo -e "  ${WHITE}[10]${NC} Install Dependencies (npm install)"
+    echo -e "  ${MAGENTA}[6]${NC} Setup Channel Pengumuman VIP (Discord)"
+    echo -e "  ${GREEN}[7]${NC} Jalankan Bot Discord (Start)"
+    echo -e "  ${RED}[8]${NC} Hentikan Bot Discord (Stop)"
+    echo -e "  ${YELLOW}[9]${NC} Restart Bot Discord"
+    echo -e "  ${WHITE}[10]${NC} Lihat Log Bot (Real-time)"
+    echo -e "  ${WHITE}[11]${NC} Install Dependencies (npm install)"
     echo -e "  ${RED}[0]${NC} Keluar"
     echo ""
     echo -ne "  ${WHITE}Pilih menu: ${NC}"
@@ -328,11 +368,12 @@ menu_utama() {
         3) add_vip ;;
         4) remove_vip ;;
         5) list_vip ;;
-        6) start_bot ;;
-        7) stop_bot ;;
-        8) stop_bot; start_bot ;;
-        9) view_logs ;;
-        10) install_dependencies ;;
+        6) setup_vip_channel ;;
+        7) start_bot ;;
+        8) stop_bot ;;
+        9) stop_bot; start_bot ;;
+        10) view_logs ;;
+        11) install_dependencies ;;
         0) clear; exit 0 ;;
         *) echo -e "\n${RED}  Pilihan tidak valid.${NC}"; sleep 1; menu_utama ;;
     esac
