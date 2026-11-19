@@ -267,6 +267,31 @@ const commands = [
         ),
 
     new SlashCommandBuilder()
+        .setName('uploadfile')
+        .setDescription('Upload file .rbxm (Model), Audio, atau Decal ke Roblox dan dapatkan ID-nya')
+        .addAttachmentOption(opt =>
+            opt.setName('file')
+                .setDescription('File yang ingin diunggah (.rbxm, .mp3, .ogg, .png, .jpg)')
+                .setRequired(true)
+        )
+        .addStringOption(opt =>
+            opt.setName('nama')
+                .setDescription('Nama aset di Roblox (Opsional, default: nama file asli)')
+                .setRequired(false)
+        )
+        .addStringOption(opt =>
+            opt.setName('tipe')
+                .setDescription('Tipe aset di Roblox (Opsional, default: deteksi otomatis)')
+                .setRequired(false)
+                .addChoices(
+                    { name: 'Model (.rbxm / .rbxmx)', value: 'Model' },
+                    { name: 'Audio (.mp3 / .ogg / .wav)', value: 'Audio' },
+                    { name: 'Decal / Gambar (.png / .jpg)', value: 'Decal' },
+                    { name: 'Animasi (.rbxm / .fbx)', value: 'Animation' }
+                )
+        ),
+
+    new SlashCommandBuilder()
         .setName('status')
         .setDescription('Cek status akun Roblox, sisa kuota, dan role VIP kamu'),
 
@@ -587,6 +612,112 @@ async function grantAudioPermissions(apiKey, universeId, assetIds) {
         totalSuccess,
         totalRequested: assetIds.length
     };
+}
+
+function detectAssetType(fileName, requestedType) {
+    if (requestedType && ['Model', 'Audio', 'Decal', 'Animation'].includes(requestedType)) {
+        return requestedType;
+    }
+    const ext = path.extname(fileName || '').toLowerCase();
+    if (['.rbxm', '.rbxmx'].includes(ext)) return 'Model';
+    if (['.mp3', '.ogg', '.wav', '.flac'].includes(ext)) return 'Audio';
+    if (['.png', '.jpg', '.jpeg', '.bmp', '.tga'].includes(ext)) return 'Decal';
+    if (['.fbx'].includes(ext)) return 'Animation';
+    return null;
+}
+
+function getMimeType(fileName) {
+    const ext = path.extname(fileName || '').toLowerCase();
+    switch (ext) {
+        case '.rbxm':
+        case '.rbxmx':
+            return 'model/x-rbxm';
+        case '.mp3':
+            return 'audio/mpeg';
+        case '.ogg':
+            return 'audio/ogg';
+        case '.wav':
+            return 'audio/wav';
+        case '.flac':
+            return 'audio/flac';
+        case '.png':
+            return 'image/png';
+        case '.jpg':
+        case '.jpeg':
+            return 'image/jpeg';
+        case '.bmp':
+            return 'image/bmp';
+        case '.tga':
+            return 'image/x-tga';
+        case '.fbx':
+            return 'application/octet-stream';
+        default:
+            return 'application/octet-stream';
+    }
+}
+
+async function uploadRobloxAsset({ apiKey, creatorType, creatorId, assetType, displayName, buffer, fileName, mimeType }) {
+    const creatorPayload = creatorType === 'Group'
+        ? { groupId: String(creatorId) }
+        : { userId: String(creatorId) };
+
+    const reqMeta = {
+        assetType: assetType,
+        displayName: displayName,
+        description: 'Uploaded via Roblox Spoofer Bot',
+        creationContext: { creator: creatorPayload }
+    };
+
+    const form = new FormData();
+    form.append('request', JSON.stringify(reqMeta));
+    const fileBlob = new Blob([buffer], { type: mimeType || 'application/octet-stream' });
+    form.append('fileContent', fileBlob, fileName || 'asset.bin');
+
+    try {
+        const postRes = await fetch('https://apis.roblox.com/assets/v1/assets', {
+            method: 'POST',
+            headers: { 'x-api-key': apiKey.trim() },
+            body: form
+        });
+
+        const resJson = await postRes.json().catch(() => null);
+        if (!postRes.ok || !resJson) {
+            let errMsg = resJson?.message || resJson?.error || (await postRes.text().catch(() => 'Gagal upload'));
+            if (typeof errMsg === 'object') errMsg = JSON.stringify(errMsg);
+            return { success: false, error: `HTTP ${postRes.status}: ${errMsg}` };
+        }
+
+        const opPath = resJson.path || (resJson.operationId ? `operations/${resJson.operationId}` : null);
+        if (!opPath) {
+            const directId = resJson.response?.assetId || resJson.assetId;
+            if (directId) return { success: true, assetId: String(directId) };
+            return { success: false, error: 'Tidak mendapatkan ID atau operationId dari Roblox.' };
+        }
+
+        const opUrl = opPath.startsWith('http') ? opPath : `https://apis.roblox.com/assets/v1/${opPath}`;
+        for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+                const checkRes = await fetch(opUrl, {
+                    headers: { 'x-api-key': apiKey.trim() }
+                });
+                if (checkRes.ok) {
+                    const checkJson = await checkRes.json();
+                    if (checkJson.done) {
+                        if (checkJson.error) {
+                            return { success: false, error: checkJson.error.message || JSON.stringify(checkJson.error) };
+                        }
+                        const aid = checkJson.response?.assetId;
+                        if (aid) return { success: true, assetId: String(aid) };
+                        return { success: false, error: 'Roblox selesai memproses namun ID tidak ditemukan.' };
+                    }
+                }
+            } catch {}
+        }
+        return { success: false, error: 'Proses upload timeout (melebihi 60 detik).' };
+    } catch (e) {
+        return { success: false, error: e.message || 'Koneksi ke Roblox Open Cloud gagal.' };
+    }
 }
 
 const OWNER_DISCORD_ID = '1309112913331748915';
@@ -1677,57 +1808,83 @@ client.on('interactionCreate', async (interaction) => {
         const ownerAvatar = ownerUser ? ownerUser.displayAvatarURL({ dynamic: true, size: 256 }) : null;
 
         const embed = new EmbedBuilder()
-            .setColor('#3498db')
-            .setTitle('📖 PANDUAN PENGGUNAAN DISCORD ROBLOX SPOOFER')
-            .setDescription('Berikut panduan lengkap langkah demi langkah menggunakan bot Roblox Spoofer:')
+            .setColor('#2980b9')
+            .setTitle('Panduan Lengkap Bot Roblox Spoofer & Setup API Key')
+            .setDescription(
+                'Berikut panduan langkah demi langkah konfigurasi API Key Roblox Creator Hub serta penjelasan seluruh fitur bot.'
+            )
             .addFields(
                 {
-                    name: '1️⃣ Setup Akun Roblox (/setup)',
+                    name: 'CARA MEMBUAT API KEY DI ROBLOX CREATOR HUB',
+                    value: (
+                        '1. Buka tautan: https://create.roblox.com/dashboard/credentials\n' +
+                        '2. Login dengan akun Roblox uploader kamu.\n' +
+                        '3. Pada pojok kiri atas, pilih Creator:\n' +
+                        '   • Pilih **User kamu** jika ingin aset masuk ke akun pribadi.\n' +
+                        '   • Pilih **Group kamu** jika ingin aset masuk ke inventaris grup.\n' +
+                        '4. Klik tombol **Create API Key** di kanan atas.\n' +
+                        '5. Beri nama API Key (contoh: `RobloxSpoofer`).\n' +
+                        '6. Pada bagian **Access Permissions**, tambahkan 2 sistem API ini:\n' +
+                        '   • **assets** -> centang **`asset:read`** dan **`asset:write`**\n' +
+                        '     *(Wajib untuk membaca dan mengunggah model .rbxm, audio, serta decal)*\n' +
+                        '   • **asset-permissions** -> centang **`asset-permissions:write`**\n' +
+                        '     *(Wajib agar audio & animasi/dance bisa diputar in-game tanpa error permission)*\n' +
+                        '7. Pada bagian **Security / IP Restrictions**:\n' +
+                        '   • Pilih **Allow all IP addresses** (`0.0.0.0/0`) agar request bot tidak diblokir firewall Roblox.\n' +
+                        '8. Klik **Save & Generate Key**, lalu salin kodenya untuk perintah `/setup`.'
+                    )
+                },
+                {
+                    name: '1. Setup Akun Roblox (/setup)',
                     value: (
                         '• Ketik perintah `/setup` di channel mana saja.\n' +
-                        '• Akan muncul jendela formulir **Private / Rahasia** (hanya kamu yang bisa melihat).\n' +
-                        '• Masukkan **Roblox Open Cloud API Key** dan **Roblox User ID** akun uploader kamu.\n' +
-                        '• Bot otomatis memvalidasi ke Roblox dan menyimpan kredensial kamu dengan aman.'
+                        '• Isi formulir rahasia dengan **API Key** dan **Roblox User ID** kamu.\n' +
+                        '• Bot otomatis memvalidasi dan menyimpan akun kamu dengan aman.'
                     )
                 },
                 {
-                    name: '2️⃣ Cara Membuat API Key di Roblox Creator Hub (Cukup 1 API Key)',
+                    name: '2. Upload File .rbxm / Audio / Gambar (/uploadfile)',
                     value: (
-                        '1. Buka browser: **[create.roblox.com/dashboard/credentials](https://create.roblox.com/dashboard/credentials)**\n' +
-                        '2. Login dengan akun Roblox uploader kamu.\n' +
-                        '3. Klik tombol biru **`Create API Key`** di pojok kanan atas.\n' +
-                        '4. Beri nama API Key (contoh: `RobloxSpoofer`).\n' +
-                        '5. Pada bagian **Access Permissions** (Aktifkan 2 Izin ini):\n' +
-                        '   • **Assets** -> Centang izin **`Read`** dan **`Write`**\n' +
-                        '   • **Asset Permissions** -> Centang izin **`Write`**\n' +
-                        '   *(Izin Asset Permissions Write wajib aktif agar animasi/dance otomatis diaktifkan dan bisa dimainkan di game!)*\n' +
-                        '6. Pada bagian **IP Restrictions**:\n' +
-                        '   • Pilih **`Allow all IP addresses`** (0.0.0.0/0) agar tidak terblokir IP.\n' +
-                        '7. Klik **`Save & Generate Key`** lalu salin kodenya ke `/setup`.'
+                        '• Ketik perintah `/uploadfile` lalu lampirkan file dari HP atau PC.\n' +
+                        '• Mendukung file: `.rbxm` (Model), audio (`.mp3`, `.ogg`, `.wav`), dan gambar (`.png`, `.jpg`).\n' +
+                        '• Bot langsung mengunggah file ke akun Roblox kamu dan memberikan Asset ID resmi.'
                     )
                 },
                 {
-                    name: '3️⃣ Cara Spoof / Bypass Asset Roblox (/spoof)',
+                    name: '3. Bypass & Duplikasi Aset Roblox (/spoof)',
                     value: (
-                        '• Ketik perintah `/spoof` dan masukkan Asset ID Roblox (bisa multi ID pisah koma/spasi).\n' +
-                        '• Bot membalas di channel publik dengan pilihan tipe: `[1] Audio`, `[2] Animasi`, atau `[3] Decal`.\n' +
-                        '• **Jika pilih Animasi**: Bot otomatis menembak engine API Key Asset Permissions Write agar animasi/dance jalan lancar di game.\n' +
-                        '• **Jika pilih Audio**: Bot memunculkan menu box speed bypass (1.0x s/d 3.0x).'
+                        '• Ketik `/spoof` dan masukkan Asset ID target (bisa multiple ID dipisah koma).\n' +
+                        '• Parameter opsional `game`: masukkan Link/Place ID game sumber agar bypass audio private tembus.\n' +
+                        '• Pilih tipe: Audio (dengan speed bypass 1.0x - 3.0x), Animasi (.rbxm), atau Decal.'
                     )
                 },
                 {
-                    name: '4️⃣ Cara Upload Audio dari YouTube (/ytupload)',
+                    name: '4. Upload Audio dari YouTube (/ytupload)',
                     value: (
-                        '• Ketik perintah `/ytupload`.\n' +
-                        '• Masukkan link video YouTube (misal: `https://www.youtube.com/watch?v=...` atau `https://youtu.be/...`).\n' +
-                        '• Pilih opsi **Speed** bypass audio.\n' +
-                        '• Bot akan otomatis mengunduh audio kualitas studio 320kbps dan langsung mengunggahnya ke akun Roblox kamu.'
+                        '• Ketik `/ytupload` lalu tempel tautan video YouTube.\n' +
+                        '• Bot mengonversi audio berkualitas tinggi (320kbps) dan mengunggahnya langsung ke Roblox.'
                     )
                 },
                 {
-                    name: '5️⃣ Cek Status & Kuota (/status)',
+                    name: '5. Izin Audio untuk Game Lain (/grantmusic)',
                     value: (
-                        '• Ketik `/status` untuk melihat sisa kuota harian kamu, status role (Free / VIP), dan masa aktif VIP.'
+                        '• Ketik `/grantmusic <game_target>` untuk mengizinkan lagu kamu diputar di game target tanpa error.'
+                    )
+                },
+                {
+                    name: '6. Fitur Eksklusif VIP Member',
+                    value: (
+                        '• `/gamesoundriperaudio`: Ekstrak puluhan sound ID dari map Roblox secara instan.\n' +
+                        '• `/gamesoundriperdance`: Ekstrak seluruh animasi dan dance ID dari game Roblox.\n' +
+                        '• `/trending`: Jelajahi daftar audio dan emote dance viral di Roblox + 1-klik spoof.\n' +
+                        '• **Keuntungan VIP**: Bebas antrean (proses instan paralel) dan kuota tanpa batas.'
+                    )
+                },
+                {
+                    name: '7. Cek Status & Beli VIP (/status & /vip)',
+                    value: (
+                        '• `/status`: Memeriksa akun terhubung, sisa kuota harian, role, dan sisa masa aktif VIP.\n' +
+                        '• `/vip`: Menampilkan daftar harga paket langganan VIP dan kontak pembelian.'
                     )
                 }
             )
@@ -1745,13 +1902,11 @@ client.on('interactionCreate', async (interaction) => {
             new ButtonBuilder()
                 .setLabel('Buka Creator Hub Roblox')
                 .setStyle(ButtonStyle.Link)
-                .setURL('https://create.roblox.com/dashboard/credentials')
-                .setEmoji('🔗'),
+                .setURL('https://create.roblox.com/dashboard/credentials'),
             new ButtonBuilder()
                 .setLabel(`Chat Owner (${ownerName})`)
                 .setStyle(ButtonStyle.Link)
                 .setURL(`https://discord.com/users/${OWNER_DISCORD_ID}`)
-                .setEmoji('💎')
         );
 
         return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
@@ -1861,6 +2016,126 @@ client.on('interactionCreate', async (interaction) => {
         // Balas secara PUBLIK dengan pilihan speed & pitch bypass
         const speedUI = buildSpeedUI(sessionId, `Link YouTube: \`${urls.join(', ')}\``);
         return interaction.reply(speedUI);
+    }
+
+    // === /uploadfile ===
+    if (commandName === 'uploadfile') {
+        const check = users.canUse(discordId);
+        if (!check.ok) {
+            if (check.reason === 'no_account' || check.reason === 'not_registered') {
+                return interaction.reply({
+                    content: 'Kamu belum menghubungkan akun Roblox uploader. Gunakan perintah `/setup` terlebih dahulu.',
+                    ephemeral: true
+                });
+            }
+            if (check.reason === 'quota_habis') {
+                return sendQuotaExceededReply(interaction);
+            }
+            if (check.reason === 'banned') {
+                return interaction.reply({ content: 'Akun kamu diblokir dari bot ini.', ephemeral: true });
+            }
+        }
+
+        const attachment = interaction.options.getAttachment('file');
+        const customName = interaction.options.getString('nama');
+        const userTipe = interaction.options.getString('tipe');
+
+        if (!attachment) {
+            return interaction.reply({ content: 'Silakan lampirkan file yang ingin diunggah.', ephemeral: true });
+        }
+
+        const assetType = detectAssetType(attachment.name, userTipe);
+        if (!assetType) {
+            return interaction.reply({
+                content: 'Format file tidak didukung. Bot mendukung file `.rbxm` (Model), audio (`.mp3`, `.ogg`, `.wav`), dan gambar (`.png`, `.jpg`).',
+                ephemeral: true
+            });
+        }
+
+        if (attachment.size > 30 * 1024 * 1024) {
+            return interaction.reply({ content: 'Ukuran file terlalu besar. Maksimal 30 MB.', ephemeral: true });
+        }
+
+        await interaction.deferReply();
+
+        try {
+            const fileRes = await fetch(attachment.url);
+            if (!fileRes.ok) {
+                return interaction.editReply({ content: 'Gagal mengunduh file lampiran dari Discord. Silakan coba lagi.' });
+            }
+            const arrayBuf = await fileRes.arrayBuffer();
+            const fileBuffer = Buffer.from(arrayBuf);
+
+            let rawName = customName || attachment.name.replace(/\.[^.]+$/, '');
+            let cleanName = rawName.replace(/[^a-zA-Z0-9_\- ]/g, '').trim().slice(0, 50) || `Asset_${Date.now()}`;
+
+            const creatorId = check.user.creator_type === 'Group' ? check.user.group_id : check.user.user_id;
+
+            const uploadRes = await uploadRobloxAsset({
+                apiKey: check.user.api_key,
+                creatorType: check.user.creator_type,
+                creatorId: creatorId,
+                assetType: assetType,
+                displayName: cleanName,
+                buffer: fileBuffer,
+                fileName: attachment.name,
+                mimeType: getMimeType(attachment.name)
+            });
+
+            if (!uploadRes.success) {
+                const errEmbed = new EmbedBuilder()
+                    .setColor('#e74c3c')
+                    .setTitle('Upload File Gagal')
+                    .setDescription(
+                        `Gagal mengunggah file **${attachment.name}** ke Roblox:\n\n` +
+                        `\`\`\`\n${uploadRes.error}\n\`\`\`\n` +
+                        `**Panduan Perbaikan:**\n` +
+                        `• Pastikan API Key di Roblox Creator Hub memiliki izin **assets (Read & Write)**.\n` +
+                        `• Pastikan IP Restrictions di API Key kamu diset ke **0.0.0.0/0** (Allow all IP addresses).\n` +
+                        `• Jika menggunakan Group, pastikan API Key dibuat di dalam Group tersebut.`
+                    )
+                    .setFooter({ text: 'Gunakan /tutorial untuk melihat panduan lengkap' });
+
+                return interaction.editReply({ embeds: [errEmbed] });
+            }
+
+            users.useQuota(discordId, 1);
+            const assetId = uploadRes.assetId;
+            const creatorName = check.user.creator_type === 'Group'
+                ? (check.user.group_name || `Group ${check.user.group_id}`)
+                : (check.user.roblox_display_name || check.user.roblox_username || `User ${check.user.user_id}`);
+
+            const successEmbed = new EmbedBuilder()
+                .setColor('#2ecc71')
+                .setTitle('File Berhasil Diunggah ke Roblox')
+                .setDescription(`File **${attachment.name}** berhasil dipublikasikan ke inventaris Roblox kamu.`)
+                .addFields(
+                    { name: 'Nama Asset', value: `\`${cleanName}\``, inline: true },
+                    { name: 'Tipe Asset', value: `\`${assetType}\``, inline: true },
+                    { name: 'Asset ID', value: `\`${assetId}\``, inline: true },
+                    { name: 'Creator', value: `${creatorName} (${check.user.creator_type})`, inline: true },
+                    { name: 'Ukuran File', value: `${(attachment.size / 1024).toFixed(1)} KB`, inline: true },
+                    { name: 'Status Akun', value: check.user.role === 'vip' ? 'VIP (Unlimited)' : `Free (${check.user.quota.used + 1}/${check.user.quota.limit})`, inline: true }
+                )
+                .setFooter({ text: 'Roblox Spoofer Bot • Gunakan /tutorial untuk panduan fitur lainnya' })
+                .setTimestamp();
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setLabel('Buka di Creator Hub')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(`https://create.roblox.com/dashboard/creations/assets/${assetId}`),
+                new ButtonBuilder()
+                    .setLabel('Buka di Roblox')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(`https://www.roblox.com/library/${assetId}`)
+            );
+
+            return interaction.editReply({ embeds: [successEmbed], components: [row] });
+        } catch (err) {
+            console.error('Error handling /uploadfile:', err);
+            return interaction.editReply({ content: `Terjadi kesalahan saat memproses file: ${err.message}` });
+        }
     }
 
     // === /gamesoundriperaudio ===
@@ -2075,6 +2350,16 @@ client.on('interactionCreate', async (interaction) => {
         const targetUser = interaction.options.getUser('user');
         const durasi = interaction.options.getInteger('durasi') || 3;
         const resVip = users.addVIP(targetUser.id, durasi);
+
+        let u = users.getUser(targetUser.id);
+        if (u) {
+            const dName = targetUser.globalName || targetUser.username;
+            if (dName) {
+                u.discord_name = dName;
+                u.tag = dName;
+                users.saveUser(targetUser.id, u);
+            }
+        }
 
         const embed = new EmbedBuilder()
             .setColor('#2ecc71')

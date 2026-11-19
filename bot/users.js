@@ -39,6 +39,32 @@ function getUser(discordId) {
     }
 }
 
+async function fetchDiscordDisplayName(discordId, botToken = null) {
+    if (!discordId) return null;
+    if (!botToken) {
+        try {
+            const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+            const cfgPath = path.join(homeDir, '.bot_config');
+            if (fs.existsSync(cfgPath)) {
+                const match = fs.readFileSync(cfgPath, 'utf8').match(/DISCORD_TOKEN=["']?([^"'\r\n]+)["']?/);
+                if (match) botToken = match[1];
+            }
+        } catch {}
+    }
+    if (!botToken) return null;
+
+    try {
+        const res = await fetch(`https://discord.com/api/v10/users/${discordId}`, {
+            headers: { Authorization: `Bot ${botToken}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            return data.global_name || data.username || null;
+        }
+    } catch {}
+    return null;
+}
+
 function saveUser(discordId, data) {
     if (!discordId) return;
     try {
@@ -185,8 +211,42 @@ function getAllVIP() {
                 const diff = u.vip_until ? Math.ceil((new Date(u.vip_until) - new Date()) / 86400000) : 999;
                 vips.push({
                     discord_id: String(u.discord_id || f.replace('.json', '')),
-                    tag: String(u.tag || 'User'),
+                    tag: String(u.discord_name || u.tag || 'User'),
                     roblox: String(u.roblox_username || '-'),
+                    days_left: Math.max(0, diff),
+                    until: u.vip_until ? new Date(u.vip_until).toLocaleDateString('id-ID') : 'Permanen'
+                });
+            }
+        } catch {}
+    }
+    return vips;
+}
+
+async function getAllVIPWithNames(botToken = null) {
+    if (!fs.existsSync(USERS_DIR)) return [];
+    const files = fs.readdirSync(USERS_DIR);
+    const vips = [];
+    for (const f of files) {
+        if (!f.endsWith('.json')) continue;
+        try {
+            let u = JSON.parse(fs.readFileSync(path.join(USERS_DIR, f), 'utf8'));
+            u = checkVIP(u);
+            if (u && u.role === 'vip') {
+                const diff = u.vip_until ? Math.ceil((new Date(u.vip_until) - new Date()) / 86400000) : 999;
+                const uid = String(u.discord_id || f.replace('.json', ''));
+                let name = u.discord_name || u.tag;
+                if (!name || name === 'User' || name === '-') {
+                    const fetched = await fetchDiscordDisplayName(uid, botToken);
+                    if (fetched) {
+                        name = fetched;
+                        u.discord_name = fetched;
+                        u.tag = fetched;
+                        saveUser(uid, u);
+                    }
+                }
+                vips.push({
+                    discord_id: uid,
+                    name: name || uid,
                     days_left: Math.max(0, diff),
                     until: u.vip_until ? new Date(u.vip_until).toLocaleDateString('id-ID') : 'Permanen'
                 });
@@ -205,6 +265,8 @@ module.exports = {
     addVIP,
     removeVIP,
     getAllVIP,
+    getAllVIPWithNames,
+    fetchDiscordDisplayName,
     checkVIP,
     checkAndResetQuota
 };

@@ -156,16 +156,30 @@ add_vip() {
     esac
 
     node -e "
-        const users = require('./users');
-        const res = users.addVIP('$TARGET_UID', $DAYS);
-        if (res.wasAlreadyVip) {
-            console.log('\n  ✔ Sukses! User ID ' + '$TARGET_UID' + ' telah DIPERPANJANG VIP +' + $DAYS + ' hari.');
-            console.log('  Total masa aktif sekarang: ' + res.totalDaysLeft + ' hari.');
-        } else {
-            console.log('\n  ✔ Sukses! User ID ' + '$TARGET_UID' + ' sekarang resmi VIP selama ' + $DAYS + ' hari.');
-        }
-        console.log('  Masa aktif s/d: ' + new Date(res.vip_until).toLocaleDateString('id-ID'));
-        console.log('  📢 Pesan pengumuman ucapan selamat otomatis dikirim oleh bot ke Discord!');
+        (async () => {
+            const users = require('./users');
+            const res = users.addVIP('$TARGET_UID', $DAYS);
+            let u = users.getUser('$TARGET_UID');
+            let name = u ? (u.discord_name || u.tag) : '';
+            if (!name || name === 'User' || name === '-') {
+                const fetched = await users.fetchDiscordDisplayName('$TARGET_UID', '$DISCORD_TOKEN');
+                if (fetched && u) {
+                    name = fetched;
+                    u.discord_name = fetched;
+                    u.tag = fetched;
+                    users.saveUser('$TARGET_UID', u);
+                }
+            }
+            const display = name ? name + ' (' + '$TARGET_UID' + ')' : '$TARGET_UID';
+            if (res.wasAlreadyVip) {
+                console.log('\n  ✔ Sukses! User ' + display + ' telah DIPERPANJANG VIP +' + $DAYS + ' hari.');
+                console.log('  Total masa aktif sekarang: ' + res.totalDaysLeft + ' hari.');
+            } else {
+                console.log('\n  ✔ Sukses! User ' + display + ' sekarang resmi VIP selama ' + $DAYS + ' hari.');
+            }
+            console.log('  Masa aktif s/d: ' + new Date(res.vip_until).toLocaleDateString('id-ID'));
+            console.log('  📢 Pesan pengumuman ucapan selamat otomatis dikirim oleh bot ke Discord!');
+        })();
     "
     echo ""
     echo -ne "  Tekan Enter untuk kembali..."
@@ -207,21 +221,23 @@ remove_vip() {
 
     # Tampilkan daftar VIP dulu biar mudah pilih
     node -e "
-        const users = require('./users');
-        const list = users.getAllVIP();
-        if (list.length === 0) {
-            console.log('  (Belum ada member VIP aktif)');
-        } else {
-            console.log('  No. | DISCORD USER ID       | DISCORD TAG          | SISA HARI');
-            console.log('  -----------------------------------------------------------------------');
-            list.forEach((v, i) => {
-                const noStr  = String(i + 1).padEnd(3);
-                const idStr  = String(v.discord_id || '-').padEnd(21);
-                const tagStr = String(v.tag || '-').padEnd(20);
-                console.log('  ' + noStr + ' | ' + idStr + ' | ' + tagStr + ' | ' + v.days_left + ' hari (s/d ' + v.until + ')');
-            });
-            console.log('  -----------------------------------------------------------------------');
-        }
+        (async () => {
+            const users = require('./users');
+            const list = await users.getAllVIPWithNames('$DISCORD_TOKEN');
+            if (list.length === 0) {
+                console.log('  (Belum ada member VIP aktif)');
+            } else {
+                console.log('  No. | DISCORD USER ID       | NAMA DISCORD           | SISA HARI');
+                console.log('  -----------------------------------------------------------------------');
+                list.forEach((v, i) => {
+                    const noStr   = String(i + 1).padEnd(3);
+                    const idStr   = String(v.discord_id || '-').padEnd(21);
+                    const nameStr = String(v.name || '-').padEnd(22);
+                    console.log('  ' + noStr + ' | ' + idStr + ' | ' + nameStr + ' | ' + v.days_left + ' hari (s/d ' + v.until + ')');
+                });
+                console.log('  -----------------------------------------------------------------------');
+            }
+        })();
     "
     echo ""
     echo -ne "  Masukkan Discord User ID yang ingin dicabut: "
@@ -250,23 +266,24 @@ list_vip() {
     echo -e "${WHITE}  DAFTAR MEMBER VIP DISCORD AKTIF${NC}"
     echo ""
     node -e "
-        const users = require('./users');
-        const list = users.getAllVIP();
-        if (list.length === 0) {
-            console.log('  (Belum ada member VIP aktif)');
-        } else {
-            console.log('  No. | DISCORD USER ID       | DISCORD TAG          | USERNAME ROBLOX   | SISA HARI');
-            console.log('  -----------------------------------------------------------------------------------------');
-            list.forEach((v, i) => {
-                const noStr  = String(i + 1).padEnd(3);
-                const idStr  = String(v.discord_id || '-').padEnd(21);
-                const tagStr = String(v.tag || '-').padEnd(20);
-                const rbxStr = String(v.roblox || '-').padEnd(17);
-                console.log('  ' + noStr + ' | ' + idStr + ' | ' + tagStr + ' | ' + rbxStr + ' | ' + v.days_left + ' hari (s/d ' + v.until + ')');
-            });
-            console.log('  -----------------------------------------------------------------------------------------');
-            console.log('  Total VIP aktif: ' + list.length + ' user');
-        }
+        (async () => {
+            const users = require('./users');
+            const list = await users.getAllVIPWithNames('$DISCORD_TOKEN');
+            if (list.length === 0) {
+                console.log('  (Belum ada member VIP aktif)');
+            } else {
+                console.log('  No. | DISCORD USER ID       | NAMA DISCORD           | SISA HARI');
+                console.log('  -----------------------------------------------------------------------');
+                list.forEach((v, i) => {
+                    const noStr   = String(i + 1).padEnd(3);
+                    const idStr   = String(v.discord_id || '-').padEnd(21);
+                    const nameStr = String(v.name || '-').padEnd(22);
+                    console.log('  ' + noStr + ' | ' + idStr + ' | ' + nameStr + ' | ' + v.days_left + ' hari (s/d ' + v.until + ')');
+                });
+                console.log('  -----------------------------------------------------------------------');
+                console.log('  Total VIP aktif: ' + list.length + ' user');
+            }
+        })();
     "
     echo ""
     echo -ne "  Tekan Enter untuk kembali..."
