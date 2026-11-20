@@ -359,6 +359,138 @@ install_dependencies() {
     menu_utama
 }
 
+add_roblox_vip() {
+    header
+    echo -e "${WHITE}  TAMBAH / PERPANJANG AKSES SCRIPT ROBLOX (USER ID)${NC}"
+    echo ""
+    echo -ne "  Masukkan Roblox User ID: "
+    read -r TARGET_RID
+    TARGET_RID=$(echo "$TARGET_RID" | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+    if ! [[ "$TARGET_RID" =~ ^[0-9]{3,15}$ ]]; then
+        echo -e "\n${RED}  Format Roblox User ID tidak valid! (Harus berupa angka).${NC}"
+        sleep 2
+        menu_utama
+        return
+    fi
+
+    echo ""
+    echo -e "  Pilihan Durasi Akses Script:"
+    echo -e "  [1] 3 Hari (Trial / Hemat)"
+    echo -e "  [2] 7 Hari (1 Minggu)"
+    echo -e "  [3] 30 Hari (1 Bulan)"
+    echo -e "  [4] 60 Hari (2 Bulan)"
+    echo -e "  [5] 365 Hari (1 Tahun)"
+    echo -e "  [6] Custom Hari"
+    echo -ne "  Pilih durasi [1-6]: "
+    read -r D_OPT
+
+    DAYS=3
+    case $D_OPT in
+        1) DAYS=3 ;;
+        2) DAYS=7 ;;
+        3) DAYS=30 ;;
+        4) DAYS=60 ;;
+        5) DAYS=365 ;;
+        6)
+            echo -ne "  Masukkan jumlah hari: "
+            read -r DAYS
+            ;;
+        *) DAYS=3 ;;
+    esac
+
+    node -e "
+        (async () => {
+            const rw = require('./roblox_whitelist');
+            const res = await rw.addRobloxVIP('$TARGET_RID', $DAYS);
+            console.log('\n  ✔ Sukses! Akun Roblox: ' + res.roblox_username + ' (' + res.roblox_id + ')');
+            if (res.wasAlreadyVip) {
+                console.log('  Status: DIPERPANJANG +' + res.addedDays + ' Hari');
+            } else {
+                console.log('  Status: AKTIF BARU selama ' + res.addedDays + ' Hari');
+            }
+            console.log('  Total Sisa Hari: ' + res.totalDaysLeft + ' Hari (s/d ' + res.until_date + ')');
+            console.log('  ✔ Whitelist otomatis disinkronkan ke GitHub!');
+        })();
+    "
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
+    read -r
+    menu_utama
+}
+
+remove_roblox_vip() {
+    header
+    echo -e "${WHITE}  HAPUS / CABUT AKSES SCRIPT ROBLOX (USER ID)${NC}"
+    echo ""
+    node -e "
+        const rw = require('./roblox_whitelist');
+        const list = rw.getAllRobloxVIP();
+        if (list.length === 0) {
+            console.log('  (Belum ada member Roblox script aktif)');
+        } else {
+            console.log('  No. | ROBLOX USER ID  | USERNAME ROBLOX      | SISA HARI');
+            console.log('  ------------------------------------------------------------------');
+            list.forEach((v, i) => {
+                const noStr  = String(i + 1).padEnd(3);
+                const idStr  = String(v.roblox_id).padEnd(16);
+                const uStr   = String(v.roblox_username).padEnd(20);
+                console.log('  ' + noStr + ' | ' + idStr + ' | ' + uStr + ' | ' + v.days_left + ' hari (s/d ' + v.until_date + ')');
+            });
+            console.log('  ------------------------------------------------------------------');
+        }
+    "
+    echo ""
+    echo -ne "  Masukkan Roblox User ID yang ingin dicabut: "
+    read -r TARGET_RID
+    TARGET_RID=$(echo "$TARGET_RID" | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+    if [ -n "$TARGET_RID" ]; then
+        node -e "
+            const rw = require('./roblox_whitelist');
+            const res = rw.removeRobloxVIP('$TARGET_RID');
+            if (res) {
+                console.log('\n  ✔ Akses untuk Roblox ID ' + '$TARGET_RID' + ' (' + res.roblox_username + ') berhasil DICABUT.');
+                console.log('  ✔ Whitelist otomatis disinkronkan ke GitHub!');
+            } else {
+                console.log('\n  User ID Roblox tidak ditemukan dalam daftar aktif.');
+            }
+        "
+    fi
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
+    read -r
+    menu_utama
+}
+
+list_roblox_vip() {
+    header
+    echo -e "${WHITE}  DAFTAR MEMBER AKSES SCRIPT ROBLOX AKTIF${NC}"
+    echo ""
+    node -e "
+        const rw = require('./roblox_whitelist');
+        const list = rw.getAllRobloxVIP();
+        if (list.length === 0) {
+            console.log('  (Belum ada member Roblox script aktif)');
+        } else {
+            console.log('  No. | ROBLOX USER ID  | USERNAME ROBLOX      | SISA HARI');
+            console.log('  ------------------------------------------------------------------');
+            list.forEach((v, i) => {
+                const noStr  = String(i + 1).padEnd(3);
+                const idStr  = String(v.roblox_id).padEnd(16);
+                const uStr   = String(v.roblox_username).padEnd(20);
+                console.log('  ' + noStr + ' | ' + idStr + ' | ' + uStr + ' | ' + v.days_left + ' hari (s/d ' + v.until_date + ')');
+            });
+            console.log('  ------------------------------------------------------------------');
+            console.log('  Total member Roblox aktif: ' + list.length + ' user');
+        }
+    "
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
+    read -r
+    menu_utama
+}
+
 menu_utama() {
     header
     echo -e "${WHITE}  PILIH MENU:${NC}"
@@ -366,14 +498,17 @@ menu_utama() {
     echo -e "  ${CYAN}[1]${NC} Setup Discord Bot Token"
     echo -e "  ${CYAN}[2]${NC} Setup Cookie Bot Tumbal"
     echo -e "  ${MAGENTA}[3]${NC} Tambah / Perpanjang VIP User (Discord ID)"
-    echo -e "  ${MAGENTA}[4]${NC} Hapus / Cabut VIP User"
-    echo -e "  ${MAGENTA}[5]${NC} Cek List Member VIP Aktif"
+    echo -e "  ${MAGENTA}[4]${NC} Hapus / Cabut VIP User (Discord ID)"
+    echo -e "  ${MAGENTA}[5]${NC} Cek List Member VIP Aktif (Discord ID)"
     echo -e "  ${MAGENTA}[6]${NC} Setup Channel Pengumuman VIP (Discord)"
-    echo -e "  ${GREEN}[7]${NC} Jalankan Bot Discord (Start)"
-    echo -e "  ${RED}[8]${NC} Hentikan Bot Discord (Stop)"
-    echo -e "  ${YELLOW}[9]${NC} Restart Bot Discord"
-    echo -e "  ${WHITE}[10]${NC} Lihat Log Bot (Real-time)"
-    echo -e "  ${WHITE}[11]${NC} Install Dependencies (npm install)"
+    echo -e "  ${YELLOW}[7]${NC} Tambah / Perpanjang Akses Script (Roblox User ID)"
+    echo -e "  ${YELLOW}[8]${NC} Hapus / Cabut Akses Script (Roblox User ID)"
+    echo -e "  ${YELLOW}[9]${NC} Cek List Member Akses Script Roblox Aktif"
+    echo -e "  ${GREEN}[10]${NC} Jalankan Bot Discord (Start)"
+    echo -e "  ${RED}[11]${NC} Hentikan Bot Discord (Stop)"
+    echo -e "  ${YELLOW}[12]${NC} Restart Bot Discord"
+    echo -e "  ${WHITE}[13]${NC} Lihat Log Bot (Real-time)"
+    echo -e "  ${WHITE}[14]${NC} Install Dependencies (npm install)"
     echo -e "  ${RED}[0]${NC} Keluar"
     echo ""
     echo -ne "  ${WHITE}Pilih menu: ${NC}"
@@ -386,11 +521,14 @@ menu_utama() {
         4) remove_vip ;;
         5) list_vip ;;
         6) setup_vip_channel ;;
-        7) start_bot ;;
-        8) stop_bot ;;
-        9) stop_bot; start_bot ;;
-        10) view_logs ;;
-        11) install_dependencies ;;
+        7) add_roblox_vip ;;
+        8) remove_roblox_vip ;;
+        9) list_roblox_vip ;;
+        10) start_bot ;;
+        11) stop_bot ;;
+        12) stop_bot; start_bot ;;
+        13) view_logs ;;
+        14) install_dependencies ;;
         0) clear; exit 0 ;;
         *) echo -e "\n${RED}  Pilihan tidak valid.${NC}"; sleep 1; menu_utama ;;
     esac
