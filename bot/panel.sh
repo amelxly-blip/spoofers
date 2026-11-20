@@ -65,7 +65,48 @@ header() {
     else
         echo -e "  Channel VIP  : ${YELLOW}Auto-detect (Channel Server)${NC}"
     fi
+
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo -e "  GitHub Token : ${GREEN}✔ Terpasang (Auto-sync Whitelist Aktif)${NC}"
+    else
+        echo -e "  GitHub Token : ${YELLOW}○ Belum diset (Simpan Lokal)${NC}"
+    fi
     echo -e "${MAGENTA}----------------------------------------------------${NC}"
+}
+
+setup_github_token() {
+    header
+    echo -e "${WHITE}  SETUP GITHUB PERSONAL ACCESS TOKEN (PAT)${NC}"
+    echo ""
+    echo -e "  Token ini digunakan agar saat menambah VIP script Roblox, daftar whitelist"
+    echo -e "  otomatis tersinkron ke GitHub secara online tanpa pernah meminta username lagi."
+    echo ""
+    echo -e "  Cara buat token di GitHub (1 kali saja):"
+    echo -e "  1. Buka browser: https://github.com/settings/tokens"
+    echo -e "  2. Klik 'Generate new token (classic)'"
+    echo -e "  3. Centang kotak 'repo'"
+    echo -e "  4. Klik 'Generate token' lalu salin kodenya (ghp_...)"
+    echo ""
+    echo -ne "  Paste GitHub Token: "
+    read -r GH_INPUT
+    GH_INPUT=$(echo "$GH_INPUT" | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+    if [ -n "$GH_INPUT" ]; then
+        if [ -f "$CONFIG_FILE" ]; then
+            grep -v "GITHUB_TOKEN=" "$CONFIG_FILE" > "$CONFIG_FILE.tmp" 2>/dev/null
+            mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
+        fi
+        echo "GITHUB_TOKEN=\"$GH_INPUT\"" >> "$CONFIG_FILE"
+        git -C "$BOT_DIR/.." remote set-url origin "https://$GH_INPUT@github.com/amelxly-blip/spoofers.git" 2>/dev/null
+        git config --global credential.helper store 2>/dev/null
+        echo -e "\n${GREEN}  ✔ GitHub Token berhasil disimpan! Auto-sync online aktif.${NC}"
+    else
+        echo -e "\n${RED}  Token tidak boleh kosong!${NC}"
+    fi
+    echo ""
+    echo -ne "  Tekan Enter untuk kembali..."
+    read -r
+    menu_utama
 }
 
 setup_token() {
@@ -410,7 +451,12 @@ add_roblox_vip() {
                 console.log('  Status: AKTIF BARU selama ' + res.addedDays + ' Hari');
             }
             console.log('  Total Sisa Hari: ' + res.totalDaysLeft + ' Hari (s/d ' + res.until_date + ')');
-            console.log('  ✔ Whitelist otomatis disinkronkan ke GitHub!');
+            if (res.isSynced) {
+                console.log('  ✔ Whitelist otomatis disinkronkan ke GitHub secara online!');
+            } else {
+                console.log('  ✔ Whitelist berhasil disimpan di file lokal.');
+                console.log('  ℹ Pasang GitHub Token di menu [3] jika ingin auto-sync online ke GitHub.');
+            }
         })();
     "
     echo ""
@@ -497,18 +543,19 @@ menu_utama() {
     echo ""
     echo -e "  ${CYAN}[1]${NC} Setup Discord Bot Token"
     echo -e "  ${CYAN}[2]${NC} Setup Cookie Bot Tumbal"
-    echo -e "  ${MAGENTA}[3]${NC} Tambah / Perpanjang VIP User (Discord ID)"
-    echo -e "  ${MAGENTA}[4]${NC} Hapus / Cabut VIP User (Discord ID)"
-    echo -e "  ${MAGENTA}[5]${NC} Cek List Member VIP Aktif (Discord ID)"
-    echo -e "  ${MAGENTA}[6]${NC} Setup Channel Pengumuman VIP (Discord)"
-    echo -e "  ${YELLOW}[7]${NC} Tambah / Perpanjang Akses Script (Roblox User ID)"
-    echo -e "  ${YELLOW}[8]${NC} Hapus / Cabut Akses Script (Roblox User ID)"
-    echo -e "  ${YELLOW}[9]${NC} Cek List Member Akses Script Roblox Aktif"
-    echo -e "  ${GREEN}[10]${NC} Jalankan Bot Discord (Start)"
-    echo -e "  ${RED}[11]${NC} Hentikan Bot Discord (Stop)"
-    echo -e "  ${YELLOW}[12]${NC} Restart Bot Discord"
-    echo -e "  ${WHITE}[13]${NC} Lihat Log Bot (Real-time)"
-    echo -e "  ${WHITE}[14]${NC} Install Dependencies (npm install)"
+    echo -e "  ${CYAN}[3]${NC} Setup GitHub Token (Auto-Sync Whitelist Online)"
+    echo -e "  ${MAGENTA}[4]${NC} Tambah / Perpanjang VIP User (Discord ID)"
+    echo -e "  ${MAGENTA}[5]${NC} Hapus / Cabut VIP User (Discord ID)"
+    echo -e "  ${MAGENTA}[6]${NC} Cek List Member VIP Aktif (Discord ID)"
+    echo -e "  ${MAGENTA}[7]${NC} Setup Channel Pengumuman VIP (Discord)"
+    echo -e "  ${YELLOW}[8]${NC} Tambah / Perpanjang Akses Script (Roblox User ID)"
+    echo -e "  ${YELLOW}[9]${NC} Hapus / Cabut Akses Script (Roblox User ID)"
+    echo -e "  ${YELLOW}[10]${NC} Cek List Member Akses Script Roblox Aktif"
+    echo -e "  ${GREEN}[11]${NC} Jalankan Bot Discord (Start)"
+    echo -e "  ${RED}[12]${NC} Hentikan Bot Discord (Stop)"
+    echo -e "  ${YELLOW}[13]${NC} Restart Bot Discord"
+    echo -e "  ${WHITE}[14]${NC} Lihat Log Bot (Real-time)"
+    echo -e "  ${WHITE}[15]${NC} Install Dependencies (npm install)"
     echo -e "  ${RED}[0]${NC} Keluar"
     echo ""
     echo -ne "  ${WHITE}Pilih menu: ${NC}"
@@ -517,18 +564,19 @@ menu_utama() {
     case $CHOICE in
         1) setup_token ;;
         2) setup_cookie ;;
-        3) add_vip ;;
-        4) remove_vip ;;
-        5) list_vip ;;
-        6) setup_vip_channel ;;
-        7) add_roblox_vip ;;
-        8) remove_roblox_vip ;;
-        9) list_roblox_vip ;;
-        10) start_bot ;;
-        11) stop_bot ;;
-        12) stop_bot; start_bot ;;
-        13) view_logs ;;
-        14) install_dependencies ;;
+        3) setup_github_token ;;
+        4) add_vip ;;
+        5) remove_vip ;;
+        6) list_vip ;;
+        7) setup_vip_channel ;;
+        8) add_roblox_vip ;;
+        9) remove_roblox_vip ;;
+        10) list_roblox_vip ;;
+        11) start_bot ;;
+        12) stop_bot ;;
+        13) stop_bot; start_bot ;;
+        14) view_logs ;;
+        15) install_dependencies ;;
         0) clear; exit 0 ;;
         *) echo -e "\n${RED}  Pilihan tidak valid.${NC}"; sleep 1; menu_utama ;;
     esac
